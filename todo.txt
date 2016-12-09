@@ -1,0 +1,10 @@
+- font resizing slider bar
+- spell check, grammar checker
+- meta jump
+- undo redo
+- tag checker -> hash table
+
+- html parser -> styles: font, size, color, anchor tags with links
+
+- game idea -> write a situation with active sentences -> sentence parser
+

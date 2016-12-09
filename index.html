@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Text Editor</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- <link rel="stylesheet" type="text/css" href="style.css"> -->
+  </head>
+  <body>
+  <div style="color: red;" id="errors"></div>
+  <div id="canvas-container"></div>
+  <button id="bold-btn">Bold</button>
+  <button id="find-tags-btn">Find Tags</button>
+  <div id="tags-listing"></div>
+  <div id="html-test"></div>
+  <div></div>
+    
+<script>
+window.onload = function() {
+  var cursorPosition = 0;
+  var buffer = [{value: 0, attributes: 0}];
+  var lineBuffer = [];
+  var copyBuffer = [];
+  var undoBuffer = [];
+  var wordBuffer = [];
+  var wordIndexes = []; //just for words; no white space
+  var links = [];
+  var numberOfLines = 0;
+  var bold = {value: false};
+  var italic = {value: false};
+  var fontSize = {value: 21};
+  var BOLD_FLAG_SHIFT = 0;
+  var ITALIC_FLAG_SHIFT = 1;
+  var container = document.getElementById("canvas-container");
+  var canvas = document.createElement("CANVAS");
+  var boldButton = document.getElementById("bold-btn");
+  var findTagButton = document.getElementById("find-tags-btn");
+  var highlightOn = false;
+  var shiftDown = false;
+  var highlightBeginIndex = 0;
+  var highlightEndIndex = 0;
+  var recompileWords = false;
+  var indexesEffected = [];
+  var globalTags = [];
+  var globalMouseP = {x: 0, y: 0};
+  var UI_Elements = [null];
+  var interactingElementIndex = 0;
+  var hotInteractionIndex = 0;
+  var nextHotInteractionIndex = 0;
+  var globalMousePressed = false;
+  var globalMouseReleased = false;
+  var toolbarDim = createDimension(0, 0, canvas.width, 50);
+
+
+  SERVER_CALL_getTags();
+
+  // boldButton.addEventListener("click", function(e) {
+  //   bold = !bold;
+  // });
+
+  function createWordFromCharArray(wordAsArray) {
+    var result = "";
+    for(var i = 0; i < wordAsArray.length; ++i) {
+      result += wordAsArray[i].value;
+    }
+    return result;
+  }
+
+  function findNumberOfWords(string) {
+    var wordCount = 0;
+    var index = 0;
+    while(index < string.length) {
+      while(index < string.length && isWhiteSpace(string[index])) {
+        index++;
+      }
+
+      var wasWord = false;
+      while(index < string.length && !isWhiteSpace(string[index])) {
+        wasWord = true;
+        index++;
+      }
+      if(wasWord) {
+        wordCount++;
+      }
+    } 
+    return wordCount;
+  }
+
+  function stringsMatch(A, lengthA, B, lengthB) {
+    var result = true;
+    if(lengthA === lengthB) {
+      while(--lengthA !== 0 & --lengthB !== 0) {
+        result &= (A[lengthA] === B[lengthB]);
+      }
+      result &= (lengthA === lengthB);
+    } else {
+      result = false;
+    }
+    return result;
+  }
+
+  function getMousePos(canvas, evt) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+      x: evt.clientX - rect.left,
+      y: evt.clientY - rect.top
+    };
+  }
+
+  canvas.addEventListener('mousemove', function(evt) {
+    globalMouseP = getMousePos(canvas, evt);
+  }, false);
+
+  canvas.addEventListener('mousedown', function(evt) {
+    if(!globalMousePressed) {
+      globalMousePressed = true;
+    }
+  }, false);
+
+  canvas.addEventListener('mouseup', function(evt) {
+    globalMousePressed = false;
+    globalMouseReleased = true;
+  }, false);
+
+  function infinityInverseRect() {
+    return {minX: 10000000000, minY: 10000000000, maxX: -10000000000, maxY: -10000000000};
+  }
+
+  function appendDimension(dimension, dimensionToAddTo) {
+    if(dimension.minX < dimensionToAddTo.minX) {
+      dimensionToAddTo.minX = dimension.minX;
+    }
+    if(dimension.minY < dimensionToAddTo.minY) {
+      dimensionToAddTo.minY = dimension.minY;
+    }
+    if(dimension.maxX > dimensionToAddTo.maxX) {
+      dimensionToAddTo.maxX = dimension.maxX;
+    }
+    if(dimension.maxY > dimensionToAddTo.maxY) {
+      dimensionToAddTo.maxY = dimension.maxY;
+    }
+    return dimensionToAddTo;
+  }
+
+  function confirmLink(beginIndex, endIndex, postId) {
+    links.push({beginIndex: beginIndex, endIndex: endIndex, idOfPage: postId});
+  }
+
+  function isSameElement(element1, element2) {
+    return (element1.beginIndex === element2.beginIndex 
+      && element1.endIndex === element2.endIndex 
+      && element1.tagIndex === element2.tagIndex );
+  }
+
+  function getUIElementIndex(elementIn) {
+    var result = 0;
+    for(var UI_ElementIndex = 1; UI_ElementIndex < UI_Elements.length; ++UI_ElementIndex) {
+      var testElement = UI_Elements[UI_ElementIndex];
+      if(isSameElement(elementIn, testElement)) {
+        result = UI_ElementIndex;
+        break;
+      }
+    }
+    return result;
+  }
+
+  function matchTags() {
+    var tagsThatMatch = "";
+    
+    //TODO: hash words to avoid double loop, use the hash as an entry point into the word array
+    // console.log(globalTags);
+    for(var i = 1; i < globalTags.length; i++) {
+      var tag = globalTags[i];
+      var wordCount = findNumberOfWords(tag.name);
+      wordCount += wordCount - 1;
+      for(var j = 0; j < wordBuffer.length; j++) {
+          var word = "";
+          var indexesOfTagWord = [];
+          var beginIndex = buffer.length;
+          var endIndex = 0;
+          var upToIndex = 0;
+          for(var wordCountIndex = 0; wordCountIndex < wordCount; wordCountIndex++) {
+            var wordIndex = j + wordCountIndex;
+            if(wordIndex < wordBuffer.length) {
+              if(!wordBuffer[wordIndex].isWhiteSpace) {
+                indexesOfTagWord[upToIndex++] = wordIndex;
+              }
+                
+                word += createWordFromCharArray(wordBuffer[wordIndex].word);
+
+                if(wordBuffer[wordIndex].startCharIndex < beginIndex) {
+                  beginIndex = wordBuffer[wordIndex].startCharIndex;
+                } 
+
+                if(wordBuffer[wordIndex].endCharIndex > endIndex) {
+                  endIndex = wordBuffer[wordIndex].endCharIndex - 1;
+                } 
+            } else {
+              break;
+            }
+          }
+          if(stringsMatch(word, word.length, tag.name, tag.name.length)) {
+            var wasInteractedWith = false;
+            for(var tagIndexCount = 0; tagIndexCount < indexesOfTagWord.length; ++tagIndexCount) {
+              var thisIndex = indexesOfTagWord[tagIndexCount];
+              wordBuffer[thisIndex].tagIndex = i; //this should be an array of tags
+
+              var thisWord = wordBuffer[thisIndex];
+
+              var newElement = {dimension: thisWord.dimension, type: "tag", dimensionType: "absolute", hotPostId: null, posts: tag.postIds, beginIndex: beginIndex, endIndex: endIndex, tagIndex: tagIndexCount};
+
+              var elementIndex = getUIElementIndex(newElement)
+              if(elementIndex === 0) {
+                  UI_Elements.push(newElement); 
+              } else {
+                UI_Elements[elementIndex].dimension = thisWord.dimension;
+              }
+            }
+            tagsThatMatch += word + " ";
+          }
+      }
+    }
+
+
+    // console.log(wordBuffer);
+    document.getElementById("tags-listing").innerHTML = tagsThatMatch;
+  }
+
+
+  // if(inBounds(globalMouseP, thisWord.dimension) && globalMousePressed) {
+  // }
+
+  // if(inBounds(globalMouseP, thisWord.dimension)) {
+  //               hotInteraction = thisWord;
+  // }
+
+  function SERVER_CALL_getTags() {
+    //run mysql query to find all tags
+    var payLoad = {};
+    var request = new XMLHttpRequest();
+    request.onreadystatechange = function() {
+      if(request.readyState == 4 && request.status == 200){
+        var postResult = JSON.parse(request.responseText);
+        if(postResult.errors) {
+          document.getElementById("errors").innerHTML = postResult.error;
+        } else {
+          globalTags = postResult.tags;
+          console.log(globalTags);
+          globalTags.splice(0, 0, null);  //so objects can reference tag index zero for null tag
+        }
+        
+      }
+    };
+
+    request.open('POST', './findTags.php', true);
+    request.setRequestHeader("Content-Type", "application/json");
+    
+    request.send(JSON.stringify(payLoad)); 
+  }
+
+  findTagButton.addEventListener("click", function(e) {
+    matchTags();
+  });
+
+  function isAtStartOfBuffer(value) {
+     return (value === 0);
+  }
+
+  function isAtEndOfBuffer(value) {
+     return (value === (buffer.length - 1));
+  }
+
+  function cursorPosWithClamp(cursorPosition, addend) {
+    cursorPosition += addend;
+    if(cursorPosition < 0) {
+        cursorPosition = 0;
+    }
+    if(cursorPosition > (buffer.length - 1)) {
+        cursorPosition = (buffer.length - 1);
+    }
+    return cursorPosition;
+  }
+
+  function isBold(attributes) {
+    return (attributes & (1 << BOLD_FLAG_SHIFT));
+  }
+
+  function isItalic(attributes) {
+    return (attributes & (1 << ITALIC_FLAG_SHIFT));
+  }
+
+  function parseCharBufferToHtml(charBuffer) {
+    // console.log(charBuffer);
+    var result = "";
+    var resultIndex = 0;
+    var boldTagOpen = false;
+    var italicTagOpen = false;
+    var paragraphOpen = false;
+    var anchorOpen = false;
+    var lastCharacter = 0;
+    var font = "";
+    var size = "";
+    // console.log(linksToAdd);
+    for(var charIndex = 0; charIndex < charBuffer.length; ++charIndex) {
+      var character = charBuffer[charIndex];
+
+      var linkAt = getLink(charIndex); 
+      // console.log("indexAt: " + charIndex + linkAt.isStart)
+      characterToAdd = "";
+
+      switch(character.value) {
+        case 0: {
+
+        } break;
+        case "Enter": {
+          if(lastCharacter === "Enter") {
+            result += "<br />";
+          } else {
+            if(paragraphOpen) {
+              result += "</p>";
+              paragraphOpen = false;
+            }  
+          }
+        } break;
+        default: {
+          if(!paragraphOpen) {
+           result += "<p>"; 
+           paragraphOpen = true;
+          }
+          if(linkAt !== 0) {
+            if(linkAt.isStart) {
+              result += "<a href='./post_display.php?id=" + linkAt.idOfPage + "'>";
+              anchorOpen = true;
+            }  
+          }
+
+          if(isBold(character.attributes.flags)) {
+            if(!boldTagOpen) {
+              boldTagOpen = true;
+              result += "<b>"
+            }
+          } else {
+            if(boldTagOpen) {
+              boldTagOpen = false;
+              result += "</b>"
+            }
+          }
+          
+          if(isItalic(character.attributes.flags)) {
+            if(!italicTagOpen) {
+              italicTagOpen = true;
+              result += "<i>"
+            }
+          } else {
+            if(italicTagOpen) {
+              italicTagOpen = false;
+              result += "</i>"
+            }
+          }
+          result += character.value;
+        }
+      }
+
+      if(linkAt !== 0) {
+        if(!linkAt.isStart && anchorOpen) {
+          result += "</a>";
+          anchorOpen = false;
+        }  
+      }
+      lastCharacter = character.value;
+    }
+
+    if(boldTagOpen) {
+      result += "</b>"
+    }
+
+    if(paragraphOpen) {
+      result += "</p>"
+    }
+
+    return result;
+  }
+
+  function cursorPosWithClampAndInfo(cursorPosition, addend) {
+    cursorPosition += addend;
+    var atEdge = false;
+    if(cursorPosition < 0) {
+        cursorPosition = 0;
+        atEdge = true;
+    }
+    if(cursorPosition > (buffer.length - 1)) {
+        cursorPosition = (buffer.length - 1);
+        atEdge = true;
+    }
+    return {cursorPosition: cursorPosition, atEdge: atEdge};
+  }
+
+  function isWhiteSpace(value) {
+     return(value === " " || value === "Enter" || value === 0);
+  }
+
+  canvas.addEventListener("keyup", function(e) {
+    if(e.key === "Shift") {
+      shiftDown = false;
+    }
+  });
+  canvas.addEventListener("keydown", function(e) {
+    // console.log(e);
+    // console.log(stringsMatch("john", 4, "john", 4));
+    if(e.key === "ArrowLeft") {
+      if(!shiftDown && highlightOn) {
+        highlightOn = false;
+      } else {
+        if(e.altKey) {
+          while(!isAtStartOfBuffer(cursorPosition) && isWhiteSpace(buffer[cursorPosition].value)) {
+            cursorPosition = cursorPosWithClamp(cursorPosition, -1);   
+          }
+
+          while(!isAtStartOfBuffer(cursorPosition) && !isWhiteSpace(buffer[cursorPosition].value)) {
+            cursorPosition = cursorPosWithClamp(cursorPosition, -1);   
+          }
+
+        } else {
+          cursorPosition = cursorPosWithClamp(cursorPosition, -1);    
+        }
+        highlightEndIndex = cursorPosition;
+      }
+    } else if(e.key === "ArrowRight") {
+      if(!shiftDown && highlightOn) {
+        highlightOn = false;
+      } else {
+        if(e.altKey) {
+          while(!isAtEndOfBuffer(cursorPosition) && isWhiteSpace(buffer[cursorPosition + 1].value)) {
+            cursorPosition = cursorPosWithClamp(cursorPosition, 1);   
+          }
+
+          while(!isAtEndOfBuffer(cursorPosition) && !isWhiteSpace(buffer[cursorPosition + 1].value)) {
+            cursorPosition = cursorPosWithClamp(cursorPosition, 1);   
+          }
+        } else {
+          cursorPosition = cursorPosWithClamp(cursorPosition, 1);  
+        }
+        highlightEndIndex = cursorPosition;
+      }
+    } else if(e.key === "ArrowUp") {
+      if(!shiftDown && highlightOn) {
+        highlightOn = false; 
+      } else {
+        if(buffer.length !== lineBuffer.length) {
+          alert("invalid code path: buffers not same size");
+        }
+        if(!isAtStartOfBuffer(cursorPosition) && buffer.length !== 0) {
+          var linePosInfo = lineBuffer[cursorPosition];
+          var newCursorIndex = cursorPosition;
+          var lineAt = linePosInfo.lineAt;
+          if(lineAt !== 0) {
+            targetIndex = lineAt - 1;
+            while(true) {
+              var testLineInfo = lineBuffer[newCursorIndex];
+              var safetyMargin = 0.4*testLineInfo.characterWidth; 
+              if(testLineInfo.lineAt === targetIndex && 
+                (linePosInfo.xPos + safetyMargin) >= testLineInfo.xPos) { 
+                break;
+              } 
+
+              if(testLineInfo.lineAt < targetIndex) {
+                // newCursorIndex++;
+                break;
+              }
+
+              --newCursorIndex;
+
+              if(newCursorIndex <= 0) {
+                break;
+              }
+            }
+            cursorPosition = newCursorIndex;
+          }
+        }
+        highlightEndIndex = cursorPosition;
+      }
+    } else if(e.key === "ArrowDown") {
+      if(!shiftDown && highlightOn) {
+        highlightOn = false;
+      } else {
+        if(buffer.length !== lineBuffer.length) {
+          alert("invalid code path: buffers not same length");
+        }
+        if(buffer.length > 0) {
+          var linePosInfo = null;
+          var newCursorIndex = null;
+          if(isAtStartOfBuffer(cursorPosition)) {
+            newCursorIndex = cursorPosition + 1;
+            linePosInfo = {xPos: 0, lineAt: 0, characterWidth: 10};
+            if(buffer[newCursorIndex].value === "Enter") {
+              linePosInfo.lineAt++;
+              numberOfLines++;
+            }
+          } else {
+            linePosInfo = lineBuffer[cursorPosition];
+            newCursorIndex = cursorPosition;
+          }
+          var lineAt = linePosInfo.lineAt;
+          if(lineAt !== numberOfLines) {
+            targetIndex = lineAt + 1;
+            while(true) {
+              var testLineInfo = lineBuffer[newCursorIndex];
+              var safetyMargin = 0; 
+              if(testLineInfo.lineAt === targetIndex && 
+                (linePosInfo.xPos + safetyMargin) <= testLineInfo.xPos) { 
+                break;
+              } 
+
+              if(testLineInfo.lineAt > targetIndex) {
+                --newCursorIndex;
+                break;
+              }
+
+              ++newCursorIndex;
+
+              if(newCursorIndex >= (lineBuffer.length - 1)) {
+                break;
+              }
+            }
+            cursorPosition = newCursorIndex;
+          } else {
+            console.log("can't go down");
+          }
+        }
+        highlightEndIndex = cursorPosition;
+      }
+    } else if(e.key === "Shift") {
+      highlightBeginIndex = cursorPosition;
+      highlightEndIndex = cursorPosition;
+      highlightOn = true;
+      shiftDown = true;
+
+    } else if(e.key === "Meta") {
+      //do nothing
+    } else if(e.key === "Alt") {
+      //do nothing
+    } else if(e.key === "Control") {
+      //do nothing
+    } else if (e.key === "Backspace") {
+      recompileWords = true;
+
+      if(!isAtStartOfBuffer(cursorPosition)) {
+        if(highlightOn) {
+          copyBuffer = [];
+          var hlIndexes = getBeginAndEndHighglightIndexes();
+          var i = hlIndexes.first + 1;
+          var copyBufferIndex = 0;
+          for(; i <= hlIndexes.second; ++i) {
+            buffer.splice(i, 1);    
+            indexesEffected.push(i);
+          }
+          cursorPosition = cursorPosWithClamp(cursorPosition, (hlIndexes.first - hlIndexes.second));  
+        } else {
+          indexesEffected.push(cursorPosition);
+          buffer.splice((cursorPosition), 1);    
+          cursorPosition = cursorPosWithClamp(cursorPosition, -1);  
+        }
+      }
+      highlightOn = false;
+    } else {
+      recompileWords = true;
+      highlightOn = false;
+      var attributeFlags = (bold.value) << BOLD_FLAG_SHIFT | (italic.value) << ITALIC_FLAG_SHIFT;
+      var attributes = {flags: attributeFlags, size: fontSize.value}
+      if(e.ctrlKey && e.key === "c") {
+        copyBuffer = [];
+        var hlIndexes = getBeginAndEndHighglightIndexes();
+        var i = hlIndexes.first + 1;
+        var copyBufferIndex = 0;
+        for(; i <= hlIndexes.second; ++i) {
+          copyBuffer[copyBufferIndex++] = buffer[i].value;
+        }
+      } else if(e.ctrlKey && e.key === "v") {
+
+        for(var i = 0; i < copyBuffer.length; ++i) {
+          indexesEffected.push(cursorPosition + 1);
+          var character = copyBuffer[i];
+          buffer.splice((cursorPosition + 1), 0, {value: character, attributes: attributes});
+          cursorPosition = cursorPosWithClamp(cursorPosition, 1);
+        }
+      } else {
+        indexesEffected.push(cursorPosition + 1);
+        buffer.splice((cursorPosition + 1), 0, {value: e.key, attributes: attributes});
+        cursorPosition = cursorPosWithClamp(cursorPosition, 1);
+        // console.log(cursorPosition);
+        if(e.key === " ") {
+          return false;
+        }
+      }
+    }
+    
+  }, true);
+  
+  function appendFontString(name, size, bold = false, italic = false) {
+    var boldString = bold ? "bold" : "";
+    var italicString = italic ? "italic" : "";
+    var result = italicString + " " + boldString + " " + size + "px " + name;
+    // console.log(result);
+    return result;
+  }
+
+  
+  function setCanvasDim() {
+    var canvasScale = 0.7; //canvas scale
+    var canvasWidthToHeight = 9 / 16;
+    canvas.width = window.innerWidth*canvasScale;
+    canvas.height = canvasWidthToHeight*canvas.width;
+    toolbarDim = updateDimension(0, 0, canvas.width, 50, toolbarDim);
+  }
+  
+  var scrollAt = {x: 0, y: 0};
+  var scrollVel = {x: 0, y: 0};
+  
+  setCanvasDim();
+  canvas.style.border = "1px solid black";
+  canvas.tabIndex = 1;
+  container.appendChild(canvas);  
+
+  var ctx = canvas.getContext("2d");
+  var fontName = "Arial";
+  ctx.font = appendFontString(fontName, fontSize.value);
+
+
+  //Router
+  function handleNewHash() {
+    var location = window.location.hash.replace(/^#\/?|\/$/g, '').split('/');
+    switch (location[0])  {
+    case '':
+
+    	break;
+    case 'contact':
+      
+      break;
+    default:
+      
+      break;
+    }
+  }
+
+
+
+  function findStringHeight(string) {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.textBaseline = 'top';
+    ctx.fillText(string, 0, 0);
+    var min = canvas.height;
+    var max = 0;
+    var pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    // console.log(pixels.length);
+    // console.log(canvas.width *canvas.height);
+
+    for(var y = 0; y < canvas.height; ++y) {
+      for(var x = 0; x < canvas.width; ++x) {
+        var index = y*4*canvas.width + x*4;
+        var r = pixels[index];
+        var g = pixels[index + 1];
+        var b = pixels[index + 2];
+        var a = pixels[index + 3];
+        
+        if(r !== 0 ||
+          g !== 0 ||
+          b !== 0 || 
+          a !== 0) {
+            if(y < min) {
+              min = y;
+            }
+            if(y > max) {
+              max = y;
+            }
+        }
+      }
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return (max - min);
+  }
+
+  var lineHeight = findStringHeight("gM");
+
+  function offsetPos_v2(A, B) {
+    return {x: A.x - B.x, y: A.y - B.y};
+  }
+
+  function clamp(min, value, max) {
+    if(value < min) { value = min; }
+    if(value > max) { value = max; }
+    return value;
+  }
+
+  function drawCursor(cursorRelToOrigin, scrollAt, lineHeight, accel, dt) {
+    var cursor = offsetPos_v2(cursorRelToOrigin, scrollAt)
+    ctx.beginPath();
+    ctx.moveTo(cursor.x, cursor.y);
+    ctx.lineTo(cursor.x, cursor.y + lineHeight);
+    ctx.stroke();
+    var extraMargin = 2*lineHeight;
+
+    if((cursor.y + extraMargin) > canvas.height) {
+      scrollVel.y += accel.y*dt;
+    }
+
+    if(cursor.y < 0) {
+      scrollVel.y -= accel.y*dt;
+    }
+    
+    if(cursor.x > canvas.width) {
+      var extraAccel = clamp(1, (cursor.x - canvas.width) / canvas.width, 20);
+      scrollVel.x += extraAccel*accel.x*dt;
+    }
+    if(cursor.x < 0) {
+      var extraAccel = clamp(1, -cursor.x / canvas.width, 20);
+      scrollVel.x -= extraAccel*accel.x*dt;
+    }
+
+  }
+
+    
+
+  function signOf(value) {
+    var result = 1;
+    if(value < 0) {
+      result = -1;
+    } 
+    return result;
+  }
+
+  function absolute(value) {
+    if(value < 0) {
+      value *= -1;
+    }
+    return value;
+  }
+
+  function clampScroll(at, vel) {
+    var minVelRange = 0.00001;
+
+    if(at.x < 0) {
+      at.x = 0;
+      vel.x = 0;
+    }
+
+    if(absolute(vel.x) < minVelRange) {
+      vel.x = 0;
+    }
+
+    if(absolute(vel.y) < minVelRange) {
+      vel.y = 0;
+    }
+
+    if(at.y < 0) {
+      at.y = 0;
+      vel.y = 0;
+    }
+
+    return {at: at, vel: vel};
+  }
+
+  function getBeginAndEndHighglightIndexes() {
+    var highlightIndex1 = highlightBeginIndex;
+    var highlightIndex2 = highlightEndIndex;
+
+    var wasFlipped = false;
+    if(highlightIndex2 < highlightIndex1) {
+      var temp = highlightIndex1;
+      highlightIndex1 = highlightIndex2;
+      highlightIndex2 = temp;
+      wasFlipped = true;
+    }
+
+    return {first: highlightIndex1, second: highlightIndex2, wasFlipped: wasFlipped};
+  }
+
+  function reintializeArrayToZero(size) {
+    return Array.apply(null, Array(size)).map(Number.prototype.valueOf, 0);
+  }
+
+  function inBounds(pos, rect2) {
+    var result = (pos.x >= rect2.minX && 
+      pos.y >= rect2.minY && 
+      pos.x < rect2.maxX && 
+      pos.y < rect2.maxY); 
+
+    return result;
+  }
+
+  function updateLinks(minIndex, maxIndex) {
+    // console.log("min index: " + minIndex);
+    // console.log("max index: " + maxIndex);
+    var range = maxIndex - minIndex;
+    var result = false;
+    for(var i = 0; i < links.length; ) {
+      var link = links[i];
+      // console.log("begin index: " + link.beginIndex);
+      // console.log("end index: " + link.endIndex);
+      if(link.beginIndex < minIndex && link.endIndex < minIndex) {
+        ++i;
+      } else if (link.beginIndex > maxIndex && link.endIndex > maxIndex) {
+        ++i;
+        link.beginIndex += range;
+        link.endIndex += range;
+      } else {
+        result = true;
+        links.splice(i, 1);
+      }
+      
+      if(link.beginIndex >= minIndex) {
+        link.beginIndex += range;
+        link.endIndex += range;
+      } 
+    }
+    return result;
+  }
+
+//TODO: this doesn't handle tags with the same index for begin and end
+  function getLink(index) {
+    var result = 0;
+    for(var i = 0; i < links.length; ++i) {
+      var link = links[i];
+      if(link.beginIndex === index) {
+        result = {idOfPage: link.idOfPage, isStart: true};
+      }
+      if(link.endIndex === index) {
+        result = {idOfPage: link.idOfPage, isStart: false};
+      }
+    }
+    return result;
+  }
+
+
+  function isLinkAlready(beginIndex, endIndex, removeIfFound = false) {
+    var result = false;
+    for(var i = 0; i < links.length; ++i) {
+      var link = links[i];
+      if(link.beginIndex === beginIndex && 
+        link.endIndex === endIndex) {
+        result = true; 
+        if(removeIfFound) {
+          console.log("remove");
+          links.splice(i, 1);
+        }
+        break;
+      }
+    }
+    return result;
+  }
+
+  function findMinMax(arrayOfNumbers) {
+    var result = {min: 1000000, max: -1000000};
+    for (var i = arrayOfNumbers.length - 1; i >= 0; i--) {
+      var num = arrayOfNumbers[i];
+      if(result.min > num) {
+        result.min = num;
+      }
+      if(result.max < num) {
+        result.max = num;
+      }
+    }
+    return result;
+  }
+
+  function clearUITagElements() {
+    for(var UI_ElementIndex = 1; UI_ElementIndex < UI_Elements.length; ) {
+      var element = UI_Elements[UI_ElementIndex];
+      if(element.type === "tag") {
+        UI_Elements.splice(UI_ElementIndex, 1);
+      } else {
+        ++UI_ElementIndex;
+      }
+    }
+  }
+
+  function percentagePosToPixelPos(dimensionAsPercent, dimensionRelTo) {
+    var relWidth = dimensionRelTo.maxX - dimensionRelTo.minX;
+    var relHeight = dimensionRelTo.maxY - dimensionRelTo.minY;
+    var result = createDimension(dimensionAsPercent.minX*relWidth, dimensionAsPercent.minY*relHeight,
+      dimensionAsPercent.maxX*relWidth, dimensionAsPercent.maxY*relHeight);
+    return offsetDim({x: dimensionRelTo.minX, y: dimensionRelTo.minY}, result);
+  }
+
+  function dimWidth(dim) {
+    return dim.maxX - dim.minX;
+  }
+
+  function dimHeight(dim) {
+    return dim.maxY - dim.minY;
+  }
+
+  function fillRectDim(dim, color, ctx) {
+    ctx.fillStyle = color;
+    ctx.fillRect(dim.minX, dim.minY, dimWidth(dim), dimHeight(dim));
+  }
+
+  function createDimension(minX, minY, maxX, maxY) {
+    return {minX: minX, minY: minY, maxX: maxX, maxY: maxY};
+  }
+
+  function createDimensionWH(minX, minY, width, height) {
+    return {minX: minX, minY: minY, maxX: minX + width, maxY: minY + height};
+  }
+
+  function updateDimension(minX, minY, maxX, maxY, dim) {
+    dim.minX = minX;
+    dim.minY = minY;
+    dim.maxX = maxX;
+    dim.maxY = maxY;
+    return dim;
+  }
+ 
+  function offsetDim(vec2, dim) {
+    return createDimension(vec2.x + dim.minX, vec2.y + dim.minY, vec2.x + dim.maxX, vec2.y + dim.maxY)
+  }
+
+  function mainLoop() {
+    // console.log(ctx);
+    // console.log(buffer);
+    // console.log(cursorPosition);
+    
+    if(recompileWords) {
+      recompileWords = false;
+      wordBuffer = [];
+      wordIndexes = [];
+      var wordIndex = 0;
+      clearUITagElements();
+      var wordIndexBufferAt = 0;
+      var indexAt = 0;
+      while(indexAt !== buffer.length) {
+        var word = [];
+        var charIndex = 0;
+        var beginIndex = indexAt;
+        while(indexAt !== buffer.length && isWhiteSpace(buffer[indexAt].value)) {
+          word[charIndex++] = buffer[indexAt];
+          indexAt++;
+        }
+        var endIndex = indexAt;
+        if(word.length !== 0) {
+          wordBuffer[wordIndex++] = {word: word, isWhiteSpace: true, tagIndex: 0, startCharIndex: beginIndex, endCharIndex: endIndex, dimension: {minX: 0, minY: 0, maxX: 0, maxY: 0}};
+        }
+
+        word = [];
+        beginIndex = indexAt;
+        charIndex = 0;
+        while(indexAt !== buffer.length && !isWhiteSpace(buffer[indexAt].value)) {
+          word[charIndex++] = buffer[indexAt];
+          indexAt++;
+        }
+        endIndex = indexAt;
+        if(word.length !== 0) {
+          wordIndexes[wordIndexBufferAt++] = wordIndex;
+          wordBuffer[wordIndex++] = {word: word, isWhiteSpace: false, tagIndex: 0, startCharIndex: beginIndex, endCharIndex: endIndex, dimension: {minX: 0, minY: 0, maxX: 0, maxY: 0}};
+        }
+      }
+      var range = findMinMax(indexesEffected);
+      updateLinks(range.min, range.max);
+      document.getElementById("html-test").innerHTML = parseCharBufferToHtml(buffer);
+      indexesEffected = [];
+    }
+
+    matchTags();  
+
+    // console.log(wordBuffer);
+
+    var dt = 0.03333;
+    var accel = {x: 200, y: 200};
+    var dragCoeff = 0.9;
+
+    var hl = getBeginAndEndHighglightIndexes();
+    var highlightIndex1 = hl.first;
+    var highlightIndex2 = hl.second;
+
+    // console.log("begin index " + highlightBeginIndex);
+    // console.log("end index " + highlightEndIndex);
+
+    scrollVel.x += dragCoeff*-scrollVel.x*dt;
+    scrollVel.y += dragCoeff*-scrollVel.y*dt;
+    scrollAt.x += scrollVel.x*dt;
+    scrollAt.y += scrollVel.y*dt;
+
+    //TODO(ollie): can we pass pointers here instead? 
+    var res = clampScroll(scrollAt, scrollVel);
+    scrollAt = res.at;
+    scrollVel = res.vel;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.textBaseline = 'top';
+
+    // toolbarDim = updateDimension(0, 0, canvas.width, 50, toolbarDim);
+    var cursor = {x: 0, y: toolbarDim.maxY};
+    var lineIndex = 0;
+    numberOfLines = 0;
+    lineBuffer = [];
+    var totalIndex = 0;
+    for(var wordAt = 0; wordAt < wordBuffer.length; ++wordAt) {
+      var word = wordBuffer[wordAt].word;
+      var tagIndex = wordBuffer[wordAt].tagIndex;
+      var color = (tagIndex === 0) ? "#000000" : "#00ff00";
+      var wordDim = infinityInverseRect();
+
+      for(var i = 0; i < word.length; ++i, ++totalIndex) {
+        var character = word[i].value;
+        var attributes = word[i].attributes;
+        var bold = isBold(attributes.flags);
+        var italic = isItalic(attributes.flags);
+        ctx.font = appendFontString(fontName, attributes.size, bold, italic);
+        ctx.fillStyle = color;
+
+        var characterWidth = ctx.measureText(character).width;
+
+        if(character === "Enter" || character === 0) {
+          characterWidth = 0;
+        }
+
+        var cursorOffset = offsetPos_v2(cursor, scrollAt);
+        var characterDim = {minX: cursorOffset.x, minY: cursorOffset.y, maxX: cursorOffset.x + characterWidth, maxY: cursorOffset.y + lineHeight};
+        wordDim = appendDimension(characterDim, wordDim);
+
+        wordBuffer[wordAt].dimension = wordDim;
+        //TODO(ollie): make this an option for the user: they can have infinte line or confined to the margins
+        // if((cursorX + characterWidth) >= canvas.width) {
+        //     cursorY += lineHeight;
+        //     cursorX = 0;
+        //     lineIndex++;
+        // }
+        if(character === 0) {
+          //don't draw text
+        } else if(character === "Enter") {
+          cursor.y += lineHeight;
+          cursor.x = 0;
+          lineIndex++;
+        } else {
+          var offsetP = offsetPos_v2(cursor, scrollAt);
+          ctx.fillText(character, offsetP.x, offsetP.y);
+          if(highlightOn && (i > highlightIndex1 && i <= highlightIndex2)) {
+            // console.log("begin index " + highlightBeginIndex);
+            // console.log("end index " + highlightEndIndex);
+            ctx.strokeRect(offsetP.x, offsetP.y, characterWidth, lineHeight);
+          }
+        }
+
+        lineBuffer[i] = {xPos: cursor.x, lineAt: lineIndex, characterWidth: characterWidth};
+
+        cursor.x += characterWidth;
+
+        if(totalIndex === cursorPosition) {
+          drawCursor(cursor, scrollAt, lineHeight, accel, dt);
+        }
+        
+      }
+    }
+
+    ctx.fillStyle = "#808080";
+    ctx.fillRect(toolbarDim.minX, toolbarDim.minY, toolbarDim.maxX - toolbarDim.minX, toolbarDim.maxY - toolbarDim.minY); // render toolbar backing
+    for(var UI_ElementIndex = 1; UI_ElementIndex < UI_Elements.length; ++UI_ElementIndex) {
+      var element = UI_Elements[UI_ElementIndex];
+      var interactDimension = element.dimension;
+      var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
+      var btnDim = element.dimension;
+      if(UI_ElementIndex === hotInteractionIndex) {
+        buttonColor = "#0000ff";
+      }
+      var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
+      var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
+      switch(element.type) {
+        case "toggle": {
+          if(element.dimensionType === "percentage") {
+            btnDim = createDimension(element.dimension.minX*relWidth, element.dimension.minY*relHeight,
+              element.dimension.maxX*relWidth, element.dimension.maxY*relHeight);
+            btnDim = offsetDim({x: element.dimensionRelTo.minX, y: element.dimensionRelTo.minY}, btnDim)
+            // console.log(btnDim);
+          }
+        } break;
+        case "slider": {
+          var sliderDim = createDimension(0, 0, 0, 0);
+          if(element.dimensionType === "percentage") {
+            sliderDim = createDimension(element.dimension.minX*relWidth, element.dimension.minY*relHeight,
+              element.dimension.maxX*relWidth, element.dimension.maxY*relHeight);
+            sliderDim = offsetDim({x: element.dimensionRelTo.minX, y: element.dimensionRelTo.minY}, sliderDim)
+          }
+          var sliderRange = element.sliderMax - element.sliderMin;
+          var sliderPercent = element.valueToToggle.value / sliderRange;
+          var sliderWidth = sliderDim.maxX - sliderDim.minX;
+          var sliderHeight = sliderDim.maxY - sliderDim.minY;
+          ctx.fillStyle = "#f0f0f0";
+          ctx.fillRect(sliderDim.minX, sliderDim.minY, sliderWidth, sliderHeight); 
+
+          var xPos = sliderPercent*sliderWidth + sliderDim.minX;
+          btnDim = createDimensionWH(xPos, sliderDim.minY, 0.1*sliderWidth, 1.5*sliderHeight);
+        } break;
+      }
+      fillRectDim(btnDim, buttonColor, ctx); 
+      // console.log(interactDimension);
+      if(inBounds(globalMouseP, btnDim)) {
+        nextHotInteractionIndex = UI_ElementIndex;
+        // console.log("inbounds");
+      }
+    }
+
+    if(interactingElementIndex === 0) {
+      hotInteractionIndex = nextHotInteractionIndex;
+
+      if(globalMousePressed && hotInteractionIndex !== 0) {
+        interactingElementIndex = hotInteractionIndex;
+        switch(element.type) {
+          case "toggle": { 
+          } break;
+          default: {
+
+          }
+        }
+        // console.log("startInteraction");
+      }
+    } 
+
+    if(interactingElementIndex !== 0) {
+      var element = UI_Elements[interactingElementIndex];
+      
+      switch(element.type) {
+        case "tag": {
+          var maxWidth = 0;
+          for(var postIndex = 0; postIndex < element.posts.length; ++postIndex) {
+            var characters = element.posts[postIndex].title;
+            var width = ctx.measureText(characters).width;
+            if(maxWidth < width) {
+              maxWidth = width;
+            }
+          }
+
+          var cursor = {x: element.dimension.minX, y: element.dimension.minY};
+          var hasHotPostId = false;
+          for(var postIndex = 0; postIndex < element.posts.length; ++postIndex) {
+            var postInfo = element.posts[postIndex];
+            ctx.fillStyle = "#808080";
+            if(postIndex === element.hotPostId) {
+              ctx.fillStyle = "#ffff00";
+            }
+            ctx.fillRect(cursor.x, cursor.y, maxWidth, lineHeight);
+            ctx.fillStyle = "#000000";
+            var characters = postInfo.title;
+            var width = ctx.measureText(characters).width;
+            ctx.fillText(characters, cursor.x, cursor.y);  
+            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + lineHeight};
+            if(inBounds(globalMouseP, dimension)) {
+              element.hotPostId = postIndex;
+              hasHotPostId = true;
+            }
+            cursor.y += lineHeight;
+          }
+
+          var removeLink = false;
+          if(isLinkAlready(element.beginIndex, element.endIndex)) {
+            var buttonTitle = "remove link";
+            var width = ctx.measureText(buttonTitle).width;
+            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + lineHeight};
+            ctx.fillStyle = "#808080";
+            if(inBounds(globalMouseP, dimension)) {
+              ctx.fillStyle = "#ffff00";
+              removeLink = true;
+            } 
+            ctx.fillRect(cursor.x, cursor.y, maxWidth, lineHeight);
+            ctx.fillStyle = "#000000";
+            ctx.fillText(buttonTitle, cursor.x, cursor.y);  
+          }
+
+          if(!hasHotPostId) {
+            element.hotPostId = null;
+          }
+
+          if(globalMouseReleased) {
+            if(element.hotPostId !== null) {
+              var hotPostId = element.posts[element.hotPostId].id;
+              confirmLink(element.beginIndex, element.endIndex, hotPostId);
+            } else if(removeLink) {
+              isLinkAlready(element.beginIndex, element.endIndex, true);
+            }
+            document.getElementById("html-test").innerHTML = parseCharBufferToHtml(buffer);
+            interactingElementIndex = 0;
+            hotInteraction = 0;
+          } 
+        } break;
+        case "toggle": {
+          if(globalMouseReleased) {
+            if(nextHotInteractionIndex === interactingElementIndex) {
+              element.valueToToggle.value = !element.valueToToggle.value;  
+            }
+            interactingElementIndex = 0;
+            hotInteraction = 0;
+          } 
+          
+        } break;
+        case "slider": {
+          var pixelDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+          var pixelRange = pixelDim.maxX - pixelDim.minX;
+          var valueRange = element.sliderMax - element.sliderMin;
+          
+          var relMouseP = globalMouseP.x - pixelDim.minX;
+          var valueAsPercent = relMouseP / pixelRange;
+          valueAsPercent = clamp(0, valueAsPercent, 1);
+          element.valueToToggle.value = valueAsPercent*valueRange;
+
+          if(globalMouseReleased) {
+            interactingElementIndex = 0;
+            hotInteraction = 0;
+          } 
+        } break;
+        default: {
+
+        }
+      }
+    } 
+    
+
+    globalMousePressed = false;
+    globalMouseReleased = false;
+    nextHotInteractionIndex = 0;
+    numberOfLines = lineIndex;
+    requestAnimationFrame(mainLoop);
+    // console.log(lineBuffer);
+  }
+
+  //fill tool bar with buttons
+  var boldElement = {dimension: createDimension(0.1, 0.2, 0.2, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: bold};
+
+  var italicElement = {dimension: createDimension(0.1, 0.45, 0.2, 0.65), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: italic};
+
+  var sizeElement = {dimension: createDimension(0.3, 0.2, 0.4, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: fontSize, sliderMin: 0, sliderMax: 72};
+
+  UI_Elements.push(boldElement); 
+  UI_Elements.push(italicElement); 
+  UI_Elements.push(sizeElement); 
+
+  requestAnimationFrame(mainLoop);
+
+  handleNewHash();
+  window.addEventListener('hashchange', handleNewHash, false);
+  window.addEventListener('resize', function() {
+    setCanvasDim();
+    
+
+  }, false);
+
+
+  function mediaQueryResponse (mq) {
+    if (mq.matches) {
+    } else {
+    }  
+  }
+
+  var mq = window.matchMedia('screen and (max-width: 820px)');
+  mediaQueryResponse(mq);
+  mq.addListener(mediaQueryResponse);
+}
+</script>
+
+</body>
+</html>
