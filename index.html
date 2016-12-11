@@ -9,7 +9,6 @@
   <body>
   <div style="color: red;" id="errors"></div>
   <div id="canvas-container"></div>
-  <button id="bold-btn">Bold</button>
   <button id="find-tags-btn">Find Tags</button>
   <div id="tags-listing"></div>
   <div id="html-test"></div>
@@ -33,7 +32,6 @@ window.onload = function() {
   var ITALIC_FLAG_SHIFT = 1;
   var container = document.getElementById("canvas-container");
   var canvas = document.createElement("CANVAS");
-  var boldButton = document.getElementById("bold-btn");
   var findTagButton = document.getElementById("find-tags-btn");
   var highlightOn = false;
   var shiftDown = false;
@@ -53,10 +51,6 @@ window.onload = function() {
 
 
   SERVER_CALL_getTags();
-
-  // boldButton.addEventListener("click", function(e) {
-  //   bold = !bold;
-  // });
 
   function createWordFromCharArray(wordAsArray) {
     var result = "";
@@ -1198,7 +1192,6 @@ window.onload = function() {
 
 
           var valueAsPercent = inverseLerp(sliderDim.minX, globalMouseP.x, sliderDim.maxX);
-          console.log(valueAsPercent);
           valueAsPercent = clamp(0, valueAsPercent, 1);
           element.valueToToggle.value = lerp(element.sliderMin, valueAsPercent, element.sliderMax);
 
