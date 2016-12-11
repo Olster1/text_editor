@@ -760,6 +760,14 @@ window.onload = function() {
     return {at: at, vel: vel};
   }
 
+  function lerp(A, t, B) {
+    return (B - A)*t + A;
+  }
+
+  function inverseLerp(A, value, B) {
+    return (value - A)/(B - A);
+  }
+
   function getBeginAndEndHighglightIndexes() {
     var highlightIndex1 = highlightBeginIndex;
     var highlightIndex2 = highlightEndIndex;
@@ -1057,41 +1065,35 @@ window.onload = function() {
     for(var UI_ElementIndex = 1; UI_ElementIndex < UI_Elements.length; ++UI_ElementIndex) {
       var element = UI_Elements[UI_ElementIndex];
       var interactDimension = element.dimension;
-      var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
       var btnDim = element.dimension;
-      if(UI_ElementIndex === hotInteractionIndex) {
-        buttonColor = "#0000ff";
-      }
-      var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
-      var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
-      switch(element.type) {
-        case "toggle": {
-          if(element.dimensionType === "percentage") {
-            btnDim = createDimension(element.dimension.minX*relWidth, element.dimension.minY*relHeight,
-              element.dimension.maxX*relWidth, element.dimension.maxY*relHeight);
-            btnDim = offsetDim({x: element.dimensionRelTo.minX, y: element.dimensionRelTo.minY}, btnDim)
-            // console.log(btnDim);
-          }
-        } break;
-        case "slider": {
-          var sliderDim = createDimension(0, 0, 0, 0);
-          if(element.dimensionType === "percentage") {
-            sliderDim = createDimension(element.dimension.minX*relWidth, element.dimension.minY*relHeight,
-              element.dimension.maxX*relWidth, element.dimension.maxY*relHeight);
-            sliderDim = offsetDim({x: element.dimensionRelTo.minX, y: element.dimensionRelTo.minY}, sliderDim)
-          }
-          var sliderRange = element.sliderMax - element.sliderMin;
-          var sliderPercent = element.valueToToggle.value / sliderRange;
-          var sliderWidth = sliderDim.maxX - sliderDim.minX;
-          var sliderHeight = sliderDim.maxY - sliderDim.minY;
-          ctx.fillStyle = "#f0f0f0";
-          ctx.fillRect(sliderDim.minX, sliderDim.minY, sliderWidth, sliderHeight); 
+      if(element.type !== "tag") {
+        var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
+        if(UI_ElementIndex === hotInteractionIndex) {
+          buttonColor = "#0000ff";
+        }
+        var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
+        var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
+        switch(element.type) {
+          case "toggle": {
+            if(element.dimensionType === "percentage") {
+              btnDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+            }
+          } break;
+          case "slider": {
+            var sliderDim = createDimension(0, 0, 0, 0);
+            if(element.dimensionType === "percentage") {
+              sliderDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+            }
+            fillRectDim(sliderDim, "#f0f0f0", ctx); 
 
-          var xPos = sliderPercent*sliderWidth + sliderDim.minX;
-          btnDim = createDimensionWH(xPos, sliderDim.minY, 0.1*sliderWidth, 1.5*sliderHeight);
-        } break;
+            var sliderPercent = inverseLerp(element.sliderMin, element.valueToToggle.value, element.sliderMax);
+
+            var xPos = lerp(sliderDim.minX, sliderPercent, sliderDim.maxX);
+            btnDim = createDimensionWH(xPos, sliderDim.minY, 0.1*dimWidth(sliderDim), 1.5*dimHeight(sliderDim));
+          } break;
+        }
+        fillRectDim(btnDim, buttonColor, ctx); 
       }
-      fillRectDim(btnDim, buttonColor, ctx); 
       // console.log(interactDimension);
       if(inBounds(globalMouseP, btnDim)) {
         nextHotInteractionIndex = UI_ElementIndex;
@@ -1192,14 +1194,13 @@ window.onload = function() {
           
         } break;
         case "slider": {
-          var pixelDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
-          var pixelRange = pixelDim.maxX - pixelDim.minX;
-          var valueRange = element.sliderMax - element.sliderMin;
-          
-          var relMouseP = globalMouseP.x - pixelDim.minX;
-          var valueAsPercent = relMouseP / pixelRange;
+          var sliderDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+
+
+          var valueAsPercent = inverseLerp(sliderDim.minX, globalMouseP.x, sliderDim.maxX);
+          console.log(valueAsPercent);
           valueAsPercent = clamp(0, valueAsPercent, 1);
-          element.valueToToggle.value = valueAsPercent*valueRange;
+          element.valueToToggle.value = lerp(element.sliderMin, valueAsPercent, element.sliderMax);
 
           if(globalMouseReleased) {
             interactingElementIndex = 0;
@@ -1226,7 +1227,7 @@ window.onload = function() {
 
   var italicElement = {dimension: createDimension(0.1, 0.45, 0.2, 0.65), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: italic};
 
-  var sizeElement = {dimension: createDimension(0.3, 0.2, 0.4, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: fontSize, sliderMin: 0, sliderMax: 72};
+  var sizeElement = {dimension: createDimension(0.3, 0.2, 0.4, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: fontSize, sliderMin: 16, sliderMax: 72};
 
   UI_Elements.push(boldElement); 
   UI_Elements.push(italicElement); 
