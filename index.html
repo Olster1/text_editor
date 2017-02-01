@@ -24,7 +24,6 @@ window.onload = function() {
   var wordBuffer = [];
   var wordIndexes = []; //just for words; no white space
   var links = [];
-  var numberOfLines = 0;
   var bold = {value: false};
   var italic = {value: false};
   var fontSize = {value: 21};
@@ -47,7 +46,71 @@ window.onload = function() {
   var nextHotInteractionIndex = 0;
   var globalMousePressed = false;
   var globalMouseReleased = false;
-  var toolbarDim = createDimension(0, 0, canvas.width, 50);
+  var TOOL_BAR_HEIGHT = 60;
+  var toolbarDim = createDimension(0, 0, canvas.width, TOOL_BAR_HEIGHT);
+  var lineWrapOn = {value: true};
+  var menuToggle = {value: false};
+  var lineSpacing = {value: 1.0};
+  var cursorTimer = {value: 0.0, maxTime: 1.0, visible: true};
+
+  var FONT_SIZE_MIN = 16;
+  var FONT_SIZE_MAX = 72;
+  var lineHeights = [15, 15, 16, 18, 19, 20, 21, 21, 22, 24, 25, 25, 26, 28, 29, 29, 30, 31, 32, 33, 34, 35, 35, 37, 38, 38, 39, 40, 42, 42, 43, 44, 45, 46, 47, 48, 48, 50, 51, 51, 52, 53, 55, 55, 56, 57, 58, 59, 60, 61, 61, 63, 64, 64, 65, 66, 68];
+
+
+  function appendFontString(name, size, bold = false, italic = false) {
+    var boldString = bold ? "bold" : "";
+    var italicString = italic ? "italic" : "";
+    var result = italicString + " " + boldString + " " + size + "px " + name;
+    // console.log(result);
+    return result;
+  }
+
+  
+  function setCanvasDim() {
+    var canvasScale = 0.7; //canvas scale
+    var canvasWidthToHeight = 9 / 16;
+    canvas.width = window.innerWidth*canvasScale;
+    canvas.height = canvasWidthToHeight*canvas.width;
+    toolbarDim = updateDimension(0, 0, canvas.width, TOOL_BAR_HEIGHT, toolbarDim);
+  }
+  
+  var scrollAt = {x: 0, y: 0};
+  var scrollVel = {x: 0, y: 0};
+  
+  setCanvasDim();
+  canvas.style.border = "1px solid black";
+  canvas.tabIndex = 1;
+  container.appendChild(canvas);  
+
+  var ctx = canvas.getContext("2d");
+  var fontName = "Arial";
+  ctx.font = appendFontString(fontName, Math.floor(fontSize.value));
+
+  function calculateLineHeight(size) {
+    var oldFont = ctx.font;
+    ctx.font = appendFontString(fontName, size);
+    var result = findStringHeight("gM");
+    ctx.font = oldFont;
+    return result;
+  }
+
+  //NOTE(ollie): This is needed to calculate the line heights for different font sizes -> Offstream asset system
+  // for(var i = FONT_SIZE_MIN; i <= FONT_SIZE_MAX; i++) {
+  //   lineHeights.push(calculateLineHeight(i));
+  // }
+
+
+  function getLineHeight(size) {
+    var index = Math.floor(size) - FONT_SIZE_MIN;
+    // console.log(size);
+    if(index < 0) {
+      // alert("string size not added to array");
+      index = 0;
+    }
+
+    return lineHeights[index];
+  }
 
 
   SERVER_CALL_getTags();
@@ -229,27 +292,30 @@ window.onload = function() {
   // }
 
   function SERVER_CALL_getTags() {
+    //#if MAMP isn't working 
+    globalTags.splice(0, 0, null);  //so objects can reference tag index zero for null tag
+    //#else
     //run mysql query to find all tags
-    var payLoad = {};
-    var request = new XMLHttpRequest();
-    request.onreadystatechange = function() {
-      if(request.readyState == 4 && request.status == 200){
-        var postResult = JSON.parse(request.responseText);
-        if(postResult.errors) {
-          document.getElementById("errors").innerHTML = postResult.error;
-        } else {
-          globalTags = postResult.tags;
-          console.log(globalTags);
-          globalTags.splice(0, 0, null);  //so objects can reference tag index zero for null tag
-        }
-        
-      }
-    };
+    // var payLoad = {};
+    // var request = new XMLHttpRequest();
+    // request.onreadystatechange = function() {
+    //   if(request.readyState == 4 && request.status == 200){
+    //     var postResult = JSON.parse(request.responseText);
+    //     if(postResult.errors) {
+    //       document.getElementById("errors").innerHTML = postResult.error;
+    //     } else {
+    //       globalTags = postResult.tags; 
 
-    request.open('POST', './findTags.php', true);
-    request.setRequestHeader("Content-Type", "application/json");
+    //       globalTags.splice(0, 0, null);  //so objects can reference tag index zero for null tag
+    //     }
+        
+    //   }
+    // };
+
+    // request.open('POST', './findTags.php', true);
+    // request.setRequestHeader("Content-Type", "application/json");
     
-    request.send(JSON.stringify(payLoad)); 
+    // request.send(JSON.stringify(payLoad)); 
   }
 
   findTagButton.addEventListener("click", function(e) {
@@ -401,6 +467,7 @@ window.onload = function() {
   canvas.addEventListener("keydown", function(e) {
     // console.log(e);
     // console.log(stringsMatch("john", 4, "john", 4));
+    resetCursor(cursorTimer);
     if(e.key === "ArrowLeft") {
       if(!shiftDown && highlightOn) {
         highlightOn = false;
@@ -488,14 +555,13 @@ window.onload = function() {
             linePosInfo = {xPos: 0, lineAt: 0, characterWidth: 10};
             if(buffer[newCursorIndex].value === "Enter") {
               linePosInfo.lineAt++;
-              numberOfLines++;
             }
           } else {
             linePosInfo = lineBuffer[cursorPosition];
             newCursorIndex = cursorPosition;
           }
           var lineAt = linePosInfo.lineAt;
-          if(lineAt !== numberOfLines) {
+          if(lineAt !== lineBuffer.length) {
             targetIndex = lineAt + 1;
             while(true) {
               var testLineInfo = lineBuffer[newCursorIndex];
@@ -560,7 +626,8 @@ window.onload = function() {
       recompileWords = true;
       highlightOn = false;
       var attributeFlags = (bold.value) << BOLD_FLAG_SHIFT | (italic.value) << ITALIC_FLAG_SHIFT;
-      var attributes = {flags: attributeFlags, size: fontSize.value}
+      var attributes = {flags: attributeFlags, size: Math.floor(fontSize.value)}
+      // console.log(attributes);
       if(e.ctrlKey && e.key === "c") {
         copyBuffer = [];
         var hlIndexes = getBeginAndEndHighglightIndexes();
@@ -590,34 +657,7 @@ window.onload = function() {
     
   }, true);
   
-  function appendFontString(name, size, bold = false, italic = false) {
-    var boldString = bold ? "bold" : "";
-    var italicString = italic ? "italic" : "";
-    var result = italicString + " " + boldString + " " + size + "px " + name;
-    // console.log(result);
-    return result;
-  }
 
-  
-  function setCanvasDim() {
-    var canvasScale = 0.7; //canvas scale
-    var canvasWidthToHeight = 9 / 16;
-    canvas.width = window.innerWidth*canvasScale;
-    canvas.height = canvasWidthToHeight*canvas.width;
-    toolbarDim = updateDimension(0, 0, canvas.width, 50, toolbarDim);
-  }
-  
-  var scrollAt = {x: 0, y: 0};
-  var scrollVel = {x: 0, y: 0};
-  
-  setCanvasDim();
-  canvas.style.border = "1px solid black";
-  canvas.tabIndex = 1;
-  container.appendChild(canvas);  
-
-  var ctx = canvas.getContext("2d");
-  var fontName = "Arial";
-  ctx.font = appendFontString(fontName, fontSize.value);
 
 
   //Router
@@ -673,8 +713,21 @@ window.onload = function() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     return (max - min);
   }
+  function clampMinV2(min, value) {
+    var result = {x: value.x, y: value.y};
+    if(result.x < min) {
+      result.x = min;
+    }
+    if(result.y < min) {
+      result.y = min;
+    }
+    return result;
+  } 
 
-  var lineHeight = findStringHeight("gM");
+  function calculateLineGap(size) {
+    var lineHeight = getLineHeight(size);
+    return lineHeight*lineSpacing.value;  
+  }
 
   function offsetPos_v2(A, B) {
     return {x: A.x - B.x, y: A.y - B.y};
@@ -686,31 +739,32 @@ window.onload = function() {
     return value;
   }
 
-  function drawCursor(cursorRelToOrigin, scrollAt, lineHeight, accel, dt) {
-    var cursor = offsetPos_v2(cursorRelToOrigin, scrollAt)
-    ctx.beginPath();
-    ctx.moveTo(cursor.x, cursor.y);
-    ctx.lineTo(cursor.x, cursor.y + lineHeight);
-    ctx.stroke();
-    var extraMargin = 2*lineHeight;
-
-    if((cursor.y + extraMargin) > canvas.height) {
-      scrollVel.y += accel.y*dt;
+  function updateCursor(cursorRelToOrigin, scrollAt, lineHeight, scrollUpdateInfo, drawCursor) {
+    var cursorRel = offsetPos_v2(cursorRelToOrigin, scrollAt)
+    if(drawCursor) {
+      ctx.beginPath();
+      ctx.moveTo(cursorRel.x, cursorRel.y);
+      ctx.lineTo(cursorRel.x, cursorRel.y + lineHeight);
+      ctx.stroke();
     }
 
-    if(cursor.y < 0) {
-      scrollVel.y -= accel.y*dt;
+    var targetScroll = {x: cursorRelToOrigin.x - (canvas.width / 2), y: cursorRelToOrigin.y - (canvas.height / 2)};
+    if(scrollAt.y !== targetScroll.y && !scrollUpdateInfo.updating) {
+      // || absolute(targetScroll.y - scrollAt.y) < absolute(scrollUpdateInfo.B.y - scrollUpdateInfo.A.y)) {
+      scrollUpdateInfo.A = clampMinV2(0, scrollAt);
+      scrollUpdateInfo.B = clampMinV2(0, targetScroll);
+      scrollUpdateInfo.t = 0.0;
+      scrollUpdateInfo.updating = true;
+
+      if(lineWrapOn.value) {
+       scrollUpdateInfo.A.x = 0.0; 
+       scrollUpdateInfo.B.x = 0.0; 
+      }
+
+      var halfHeight = canvas.height / 2;
+      scrollUpdateInfo.deltaTime = 1.0*(cursorRel.y/halfHeight);
     }
     
-    if(cursor.x > canvas.width) {
-      var extraAccel = clamp(1, (cursor.x - canvas.width) / canvas.width, 20);
-      scrollVel.x += extraAccel*accel.x*dt;
-    }
-    if(cursor.x < 0) {
-      var extraAccel = clamp(1, -cursor.x / canvas.width, 20);
-      scrollVel.x -= extraAccel*accel.x*dt;
-    }
-
   }
 
     
@@ -731,7 +785,7 @@ window.onload = function() {
   }
 
   function clampScroll(at, vel) {
-    var minVelRange = 0.00001;
+    var minVelRange = 0.001;
 
     if(at.x < 0) {
       at.x = 0;
@@ -756,6 +810,10 @@ window.onload = function() {
 
   function lerp(A, t, B) {
     return (B - A)*t + A;
+  }
+
+  function lerpV2(A, t, B) {
+    return {x: ((B.x - A.x)*t + A.x), y: ((B.y - A.y)*t + A.y)};
   }
 
   function inverseLerp(A, value, B) {
@@ -876,6 +934,29 @@ window.onload = function() {
     }
   }
 
+  function resetCursor(cursorTimer) {
+    cursorTimer.value = 0;
+    cursorTimer.visible = true;
+  }
+
+  function getWordLengthInPixels(word) {
+    var currentFont = ctx.font;
+    var result = 0;
+    for(var i = 0; i < word.length; ++i) {
+      var character = word[i].value;
+      var attributes = word[i].attributes;
+      var bold = isBold(attributes.flags);
+      var italic = isItalic(attributes.flags);
+      ctx.font = appendFontString(fontName, attributes.size, bold, italic);
+
+      result += ctx.measureText(character).width;
+
+    }
+    ctx.font = currentFont;
+
+    return result;
+  }
+
   function percentagePosToPixelPos(dimensionAsPercent, dimensionRelTo) {
     var relWidth = dimensionRelTo.maxX - dimensionRelTo.minX;
     var relHeight = dimensionRelTo.maxY - dimensionRelTo.minY;
@@ -893,8 +974,10 @@ window.onload = function() {
   }
 
   function fillRectDim(dim, color, ctx) {
+    var oldColor = ctx.fillStyle;
     ctx.fillStyle = color;
     ctx.fillRect(dim.minX, dim.minY, dimWidth(dim), dimHeight(dim));
+    ctx.fillStyle = oldColor;
   }
 
   function createDimension(minX, minY, maxX, maxY) {
@@ -912,11 +995,268 @@ window.onload = function() {
     dim.maxY = maxY;
     return dim;
   }
- 
+  
+  //TODO(ollie): this will be slow when there is lots of lines -> hash the lines for O(1) lookup 
+  function getLineInfo(index) {
+    var result = null;
+    for(var i = 0; i < lineBuffer.length; ++i) {
+      var lineInfo = lineBuffer[i];
+      if(index >= lineInfo.beginIndex && index < lineInfo.endIndex) {
+        result = lineInfo;
+        break;
+      }
+    }
+    // console.log(lineBuffer);
+    // console.log(index);
+    return result;
+    
+  }
+
+  function printLineBuffer() {
+    console.log(lineBuffer);
+  }
+
   function offsetDim(vec2, dim) {
     return createDimension(vec2.x + dim.minX, vec2.y + dim.minY, vec2.x + dim.maxX, vec2.y + dim.maxY)
   }
 
+  function renderCharacterBuffer(renderPass, scrollUpdateInfo) {
+    var hl = getBeginAndEndHighglightIndexes();
+    var highlightIndex1 = hl.first;
+    var highlightIndex2 = hl.second;
+
+    var cursor = {x: 0, y: toolbarDim.maxY};
+    var beginLineIndex = 0;
+    var maxCharacterSize = 0;
+    var lineIndexAt = 0;
+    if(!renderPass) {
+      lineBuffer = [];  
+    }
+
+    var totalIndex = 0;
+    for(var wordAt = 0; wordAt < wordBuffer.length; ++wordAt) {
+      var word = wordBuffer[wordAt].word;
+      var tagIndex = wordBuffer[wordAt].tagIndex;
+      var color = (tagIndex === 0) ? "#000000" : "#00ff00";
+      var wordDim = infinityInverseRect();
+      var onLastWord = (wordAt === (wordBuffer.length - 1));
+      if(lineWrapOn.value && ((cursor.x + getWordLengthInPixels(word)) >= canvas.width)) {
+        
+        if(!renderPass) {
+          var cursorOffset = offsetPos_v2(cursor, scrollAt);
+          lineBuffer[lineIndexAt++] = {maxCharacterSize: maxCharacterSize, beginIndex: beginLineIndex, endIndex: totalIndex, minY: cursorOffset.y, height: getLineHeight(maxCharacterSize)};
+          beginLineIndex = totalIndex;
+        }
+        cursor.y += calculateLineGap(maxCharacterSize);
+        cursor.x = 0;  
+        maxCharacterSize = 0;
+      }
+      for(var i = 0; i < word.length; ++i, ++totalIndex) {
+        var character = word[i].value;
+        var attributes = word[i].attributes;
+        var bold = isBold(attributes.flags);
+        var italic = isItalic(attributes.flags);
+        ctx.font = appendFontString(fontName, attributes.size, bold, italic);
+        if(maxCharacterSize < attributes.size) {
+          maxCharacterSize = attributes.size;
+        }
+        ctx.fillStyle = color;
+        var thisLineGap = calculateLineGap(maxCharacterSize);
+
+        var characterWidth = ctx.measureText(character).width;
+        if(lineWrapOn.value && (cursor.x + characterWidth) >= canvas.width) {
+            //needed for when single words span multiple lines
+            if(!renderPass) {
+              var cursorOffset = offsetPos_v2(cursor, scrollAt);
+              lineBuffer[lineIndexAt++] = {maxCharacterSize: maxCharacterSize, beginIndex: beginLineIndex, endIndex: totalIndex, minY: cursorOffset.y, height: getLineHeight(maxCharacterSize)};
+              beginLineIndex = totalIndex;
+            }
+            cursor.y += thisLineGap;
+            cursor.x = 0;
+            maxCharacterSize = 0;
+        }
+        if(character === "Enter" || character === 0) {
+          characterWidth = 0;
+        }
+        
+        var cursorOffset = offsetPos_v2(cursor, scrollAt);
+        var characterDim = {minX: cursorOffset.x, minY: cursorOffset.y, maxX: cursorOffset.x + characterWidth, maxY: cursorOffset.y + getLineHeight(attributes.size)};
+        wordDim = appendDimension(characterDim, wordDim);
+        
+        if(globalMousePressed && inBounds(globalMouseP, characterDim)) {
+          cursorPosition = clamp(0, totalIndex - 1, totalIndex);
+        }
+
+        wordBuffer[wordAt].dimension = wordDim;
+
+        var onLastCharacter = onLastWord && (i === (word.length - 1));
+        var renderCharacter = true;
+        if(character === 0) {
+          renderCharacter = false;
+          //don't draw text
+        } else if(character === "Enter" || onLastCharacter) {
+          if(!renderPass) {
+            var endIndex = (onLastCharacter) ? totalIndex + 1 : totalIndex;
+            var cursorOffset = offsetPos_v2(cursor, scrollAt);
+            lineBuffer[lineIndexAt++] = {maxCharacterSize: maxCharacterSize, beginIndex: beginLineIndex, endIndex: endIndex, minY: cursorOffset.y, height: getLineHeight(maxCharacterSize)};
+            beginLineIndex = totalIndex;
+          }
+          if(character === "Enter") {
+            cursor.y += thisLineGap;
+            cursor.x = 0;
+            renderCharacter = false;
+            maxCharacterSize = 0;
+          }
+        } 
+
+        var lineInfo = getLineInfo(totalIndex);
+        // console.log(fontSize.value);
+        var lineInfoHeight = (lineInfo === null) ? getLineHeight(fontSize.value) : lineInfo.height;
+        if(lineInfo === null && renderPass) {
+          console.log("null");
+        }
+        if(renderPass && renderCharacter) {
+          var offsetP = offsetPos_v2({x: cursor.x, y: cursor.y + lineInfoHeight}, scrollAt);
+          ctx.fillText(character, offsetP.x, offsetP.y);
+          if(highlightOn && (i > highlightIndex1 && i <= highlightIndex2)) {
+            // console.log("begin index " + highlightBeginIndex);
+            // console.log("end index " + highlightEndIndex);
+            ctx.strokeRect(offsetP.x, offsetP.y, characterWidth, lineInfoHeight);
+          }
+        }
+
+        cursor.x += characterWidth;
+
+        if(renderPass && totalIndex === cursorPosition) {
+          updateCursor(cursor, scrollAt, lineInfoHeight, scrollUpdateInfo, cursorTimer.visible);
+        }
+        
+      }
+    }
+  }
+
+  function getWidth(dim) {
+    return dim.maxX - dim.minX;
+  }
+
+  function getHeight(dim) {
+    return dim.maxY - dim.minY;
+  }
+
+  function renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX) {
+
+    var interactDimension = element.dimension;
+      var btnDim = element.dimension;
+      var buttonText = "";
+      var marginX = 20;
+      var marginY = 4;
+      var completeRender = true;
+      if(element.type !== "tag") {
+        var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
+        if(UI_ElementIndex === hotInteractionIndex) {
+          buttonColor = "#0000ff";
+        }
+        var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
+        var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
+        switch(element.type) {
+          case "toggle": {
+            if(element.dimensionType === "percentage") {
+              btnDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+            } else if(element.dimensionType === "packed") {
+              var fontSize = element.letterSize;
+              ctx.font = appendFontString(fontName, element.letterSize, false, false);
+              var charWidth = ctx.measureText(element.name).width;
+              var charHeight = getLineHeight(element.letterSize);
+              buttonText = element.name;
+              if(packedX.value + charWidth < canvasWidth || ignoreBoundary) {
+                btnDim = {minX: packedX.value, maxX: packedX.value + charWidth, minY: packedY.value, maxY: packedY.value + charHeight};
+                if(moveInX) {
+                  packedX.value += charWidth + marginX;   
+                } else {
+                  packedY.value += charHeight + marginY;    
+                }
+              } else {
+                indexUpTo.value = UI_ElementIndex;
+                var elementIndex = UI_Elements.length - 1;
+                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedX, packedY, true, true);
+                completeRender = false;
+              } 
+            }
+          } break;
+          case "slider": {
+            var sliderDim = createDimension(0, 0, 0, 0);
+            if(element.dimensionType === "percentage") {
+              sliderDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
+              element.dim = sliderDim;
+            } else if(element.dimensionType === "packed") {
+              var fontSize = element.letterSize;
+              var barWidth = 100;
+              var barHeight= 20;
+              ctx.font = appendFontString(fontName, element.letterSize, false, false);
+              var totalWidth = ctx.measureText(element.name).width;
+              if(totalWidth < barWidth) {
+                totalWidth = barWidth;
+              } 
+              var charHeight = getLineHeight(element.letterSize);
+              if(packedX.value + barWidth < canvasWidth || ignoreBoundary) {
+                ctx.fillText(element.name, packedX.value, packedY.value);  
+                sliderDim = {minX: packedX.value, maxX: packedX.value + barWidth, minY: packedY.value, maxY: packedY.value + barHeight};
+                element.dim = sliderDim;
+                if(moveInX) {
+                  packedX.value += totalWidth + marginX;
+                } else {
+                  packedY.value += charHeight + marginY;    
+                }
+              } else {
+                indexUpTo.value = UI_ElementIndex;
+                var elementIndex = UI_Elements.length - 1;
+                
+                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedX, packedY, canvasWidth, true, true);
+                completeRender = false;
+              }
+            }
+            if(completeRender) {
+              fillRectDim(sliderDim, "#f0f0f0", ctx); 
+            }
+
+            var sliderPercent = inverseLerp(element.sliderMin, element.valueToToggle.value, element.sliderMax);
+
+            var xPos = lerp(sliderDim.minX, sliderPercent, sliderDim.maxX);
+            btnDim = createDimensionWH(xPos, sliderDim.minY, 0.1*dimWidth(sliderDim), 1.5*dimHeight(sliderDim));
+          } break;
+        }
+        if(completeRender) {
+          fillRectDim(btnDim, buttonColor, ctx); 
+          ctx.fillStyle = "#000000";
+          ctx.fillText(buttonText, btnDim.minX, btnDim.maxY);  
+        }
+      } //if interaction is not a tag
+      // console.log(interactDimension);
+      if(inBounds(globalMouseP, btnDim) && completeRender) {
+        nextHotInteractionIndex = UI_ElementIndex;
+        // console.log("inbounds");
+      }
+
+      return completeRender;
+  }
+
+  function renderToolBar(UIElementStartingIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX) {
+    
+    var indexUpTo = {value: UI_Elements.length};
+
+    for(var UI_ElementIndex = UIElementStartingIndex; UI_ElementIndex < (UI_Elements.length - 1); ++UI_ElementIndex) {
+      var element = UI_Elements[UI_ElementIndex];
+      var continueLoop = renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX);
+      if(!continueLoop) {
+        indexUpTo = UI_ElementIndex;
+        break;
+      }
+    }
+
+    return {indexUpTo: indexUpTo};
+  }
+
+  var scrollUpdateInfo = {A: {x: -100000, y: -100000}, t: 1, B: {x: 0, y: 0}, deltaTime: 1, updating: false};
   function mainLoop() {
     // console.log(ctx);
     // console.log(buffer);
@@ -924,6 +1264,7 @@ window.onload = function() {
     
     if(recompileWords) {
       recompileWords = false;
+      var cursor = {x: 0, y: 0};
       wordBuffer = [];
       wordIndexes = [];
       var wordIndex = 0;
@@ -934,8 +1275,10 @@ window.onload = function() {
         var word = [];
         var charIndex = 0;
         var beginIndex = indexAt;
+        var wordWidth = 0;
         while(indexAt !== buffer.length && isWhiteSpace(buffer[indexAt].value)) {
           word[charIndex++] = buffer[indexAt];
+          wordWidth += ctx.measureText(buffer[indexAt].value).width;
           indexAt++;
         }
         var endIndex = indexAt;
@@ -960,6 +1303,10 @@ window.onload = function() {
       updateLinks(range.min, range.max);
       document.getElementById("html-test").innerHTML = parseCharBufferToHtml(buffer);
       indexesEffected = [];
+
+      renderCharacterBuffer(false, null);
+      // console.log(lineBuffer);
+
     }
 
     matchTags();  
@@ -970,136 +1317,49 @@ window.onload = function() {
     var accel = {x: 200, y: 200};
     var dragCoeff = 0.9;
 
-    var hl = getBeginAndEndHighglightIndexes();
-    var highlightIndex1 = hl.first;
-    var highlightIndex2 = hl.second;
+    var accelCoeff = 1.0;
 
-    // console.log("begin index " + highlightBeginIndex);
-    // console.log("end index " + highlightEndIndex);
+    scrollAt = lerpV2(scrollUpdateInfo.A, scrollUpdateInfo.t / scrollUpdateInfo.deltaTime, scrollUpdateInfo.B);
+    scrollUpdateInfo.t += dt;
+    if(scrollUpdateInfo.t >= scrollUpdateInfo.deltaTime) {
+      scrollUpdateInfo.t = scrollUpdateInfo.deltaTime;
+      scrollUpdateInfo.updating = false;
+    }
 
-    scrollVel.x += dragCoeff*-scrollVel.x*dt;
-    scrollVel.y += dragCoeff*-scrollVel.y*dt;
-    scrollAt.x += scrollVel.x*dt;
-    scrollAt.y += scrollVel.y*dt;
-
-    //TODO(ollie): can we pass pointers here instead? 
-    var res = clampScroll(scrollAt, scrollVel);
-    scrollAt = res.at;
-    scrollVel = res.vel;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'bottom';
+
+    cursorTimer.value += dt;
+    if(cursorTimer.value > cursorTimer.maxTime) {
+      cursorTimer.visible = !cursorTimer.visible;
+      cursorTimer.value = 0;
+    }
 
     // toolbarDim = updateDimension(0, 0, canvas.width, 50, toolbarDim);
-    var cursor = {x: 0, y: toolbarDim.maxY};
-    var lineIndex = 0;
-    numberOfLines = 0;
-    lineBuffer = [];
-    var totalIndex = 0;
-    for(var wordAt = 0; wordAt < wordBuffer.length; ++wordAt) {
-      var word = wordBuffer[wordAt].word;
-      var tagIndex = wordBuffer[wordAt].tagIndex;
-      var color = (tagIndex === 0) ? "#000000" : "#00ff00";
-      var wordDim = infinityInverseRect();
+    renderCharacterBuffer(true, scrollUpdateInfo);
 
-      for(var i = 0; i < word.length; ++i, ++totalIndex) {
-        var character = word[i].value;
-        var attributes = word[i].attributes;
-        var bold = isBold(attributes.flags);
-        var italic = isItalic(attributes.flags);
-        ctx.font = appendFontString(fontName, attributes.size, bold, italic);
-        ctx.fillStyle = color;
-
-        var characterWidth = ctx.measureText(character).width;
-
-        if(character === "Enter" || character === 0) {
-          characterWidth = 0;
-        }
-
-        var cursorOffset = offsetPos_v2(cursor, scrollAt);
-        var characterDim = {minX: cursorOffset.x, minY: cursorOffset.y, maxX: cursorOffset.x + characterWidth, maxY: cursorOffset.y + lineHeight};
-        wordDim = appendDimension(characterDim, wordDim);
-
-        wordBuffer[wordAt].dimension = wordDim;
-        //TODO(ollie): make this an option for the user: they can have infinte line or confined to the margins
-        // if((cursorX + characterWidth) >= canvas.width) {
-        //     cursorY += lineHeight;
-        //     cursorX = 0;
-        //     lineIndex++;
-        // }
-        if(character === 0) {
-          //don't draw text
-        } else if(character === "Enter") {
-          cursor.y += lineHeight;
-          cursor.x = 0;
-          lineIndex++;
-        } else {
-          var offsetP = offsetPos_v2(cursor, scrollAt);
-          ctx.fillText(character, offsetP.x, offsetP.y);
-          if(highlightOn && (i > highlightIndex1 && i <= highlightIndex2)) {
-            // console.log("begin index " + highlightBeginIndex);
-            // console.log("end index " + highlightEndIndex);
-            ctx.strokeRect(offsetP.x, offsetP.y, characterWidth, lineHeight);
-          }
-        }
-
-        lineBuffer[i] = {xPos: cursor.x, lineAt: lineIndex, characterWidth: characterWidth};
-
-        cursor.x += characterWidth;
-
-        if(totalIndex === cursorPosition) {
-          drawCursor(cursor, scrollAt, lineHeight, accel, dt);
-        }
-        
-      }
-    }
-
+    var packedX = {value: 20};
+    var packedY = {value: 25};
     ctx.fillStyle = "#808080";
-    ctx.fillRect(toolbarDim.minX, toolbarDim.minY, toolbarDim.maxX - toolbarDim.minX, toolbarDim.maxY - toolbarDim.minY); // render toolbar backing
-    for(var UI_ElementIndex = 1; UI_ElementIndex < UI_Elements.length; ++UI_ElementIndex) {
-      var element = UI_Elements[UI_ElementIndex];
-      var interactDimension = element.dimension;
-      var btnDim = element.dimension;
-      if(element.type !== "tag") {
-        var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
-        if(UI_ElementIndex === hotInteractionIndex) {
-          buttonColor = "#0000ff";
-        }
-        var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
-        var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
-        switch(element.type) {
-          case "toggle": {
-            if(element.dimensionType === "percentage") {
-              btnDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
-            }
-          } break;
-          case "slider": {
-            var sliderDim = createDimension(0, 0, 0, 0);
-            if(element.dimensionType === "percentage") {
-              sliderDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
-            }
-            fillRectDim(sliderDim, "#f0f0f0", ctx); 
-
-            var sliderPercent = inverseLerp(element.sliderMin, element.valueToToggle.value, element.sliderMax);
-
-            var xPos = lerp(sliderDim.minX, sliderPercent, sliderDim.maxX);
-            btnDim = createDimensionWH(xPos, sliderDim.minY, 0.1*dimWidth(sliderDim), 1.5*dimHeight(sliderDim));
-          } break;
-        }
-        fillRectDim(btnDim, buttonColor, ctx); 
-      }
-      // console.log(interactDimension);
-      if(inBounds(globalMouseP, btnDim)) {
-        nextHotInteractionIndex = UI_ElementIndex;
-        // console.log("inbounds");
-      }
+    ctx.fillRect(toolbarDim.minX, toolbarDim.minY, getWidth(toolbarDim), getHeight(toolbarDim)); // fill toolbar backing color
+    var res = renderToolBar(1, packedX, packedY, canvas.width, false, true);
+    if(menuToggle.value) {
+      packedX.value = 0.7*canvas.width;
+      packedY.value = getHeight(toolbarDim) + 20;
+      ctx.fillStyle = "#404040";
+      ctx.fillRect(packedX.value, packedY.value, canvas.width - packedX.value, canvas.height); 
+      renderToolBar(res.indexUpTo, packedX, packedY, canvas.width, true, false);
     }
+    
+
 
     if(interactingElementIndex === 0) {
       hotInteractionIndex = nextHotInteractionIndex;
 
       if(globalMousePressed && hotInteractionIndex !== 0) {
         interactingElementIndex = hotInteractionIndex;
+        var element = UI_Elements[interactingElementIndex];
         switch(element.type) {
           case "toggle": { 
           } break;
@@ -1117,6 +1377,9 @@ window.onload = function() {
       switch(element.type) {
         case "tag": {
           var maxWidth = 0;
+          var fontSize = 22;
+          ctx.font = appendFontString(fontName, fontSize, false, false);
+          var thisLineHeight = getLineHeight(fontSize);
           for(var postIndex = 0; postIndex < element.posts.length; ++postIndex) {
             var characters = element.posts[postIndex].title;
             var width = ctx.measureText(characters).width;
@@ -1133,30 +1396,30 @@ window.onload = function() {
             if(postIndex === element.hotPostId) {
               ctx.fillStyle = "#ffff00";
             }
-            ctx.fillRect(cursor.x, cursor.y, maxWidth, lineHeight);
+            ctx.fillRect(cursor.x, cursor.y, maxWidth, thisLineHeight);
             ctx.fillStyle = "#000000";
             var characters = postInfo.title;
             var width = ctx.measureText(characters).width;
             ctx.fillText(characters, cursor.x, cursor.y);  
-            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + lineHeight};
+            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + thisLineHeight};
             if(inBounds(globalMouseP, dimension)) {
               element.hotPostId = postIndex;
               hasHotPostId = true;
             }
-            cursor.y += lineHeight;
+            cursor.y += thisLineHeight;
           }
 
           var removeLink = false;
           if(isLinkAlready(element.beginIndex, element.endIndex)) {
             var buttonTitle = "remove link";
             var width = ctx.measureText(buttonTitle).width;
-            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + lineHeight};
+            var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + thisLineHeight};
             ctx.fillStyle = "#808080";
             if(inBounds(globalMouseP, dimension)) {
               ctx.fillStyle = "#ffff00";
               removeLink = true;
             } 
-            ctx.fillRect(cursor.x, cursor.y, maxWidth, lineHeight);
+            ctx.fillRect(cursor.x, cursor.y, maxWidth, thisLineHeight);
             ctx.fillStyle = "#000000";
             ctx.fillText(buttonTitle, cursor.x, cursor.y);  
           }
@@ -1188,12 +1451,16 @@ window.onload = function() {
           
         } break;
         case "slider": {
-          var sliderDim = percentagePosToPixelPos(element.dimension, element.dimensionRelTo);
 
-
-          var valueAsPercent = inverseLerp(sliderDim.minX, globalMouseP.x, sliderDim.maxX);
+          var valueAsPercent = inverseLerp(element.dim.minX, globalMouseP.x, element.dim.maxX);
           valueAsPercent = clamp(0, valueAsPercent, 1);
           element.valueToToggle.value = lerp(element.sliderMin, valueAsPercent, element.sliderMax);
+
+          var numberPos = {x: clamp(element.dim.minX, globalMouseP.x, element.dim.maxX), y: lerp(element.dim.minY, 0.5, element.dim.maxY)};
+          ctx.fillStyle = "#ffffff";
+          ctx.textBaseline = 'top';
+          ctx.fillText(Math.floor(element.valueToToggle.value), numberPos.x, numberPos.y); 
+          ctx.textBaseline = 'bottom';
 
           if(globalMouseReleased) {
             interactingElementIndex = 0;
@@ -1210,21 +1477,30 @@ window.onload = function() {
     globalMousePressed = false;
     globalMouseReleased = false;
     nextHotInteractionIndex = 0;
-    numberOfLines = lineIndex;
+    
     requestAnimationFrame(mainLoop);
     // console.log(lineBuffer);
   }
 
   //fill tool bar with buttons
-  var boldElement = {dimension: createDimension(0.1, 0.2, 0.2, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: bold};
+  var boldElement = {dimension: {}, letterSize: 22, name: "B", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: bold};
 
-  var italicElement = {dimension: createDimension(0.1, 0.45, 0.2, 0.65), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: italic};
+  var italicElement = {dimension: {}, letterSize: 22, name: "I", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: italic};
 
-  var sizeElement = {dimension: createDimension(0.3, 0.2, 0.4, 0.4), dimensionType: "percentage", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: fontSize, sliderMin: 16, sliderMax: 72};
+  var sizeElement = {dimension: {}, letterSize: 22, name: "font size", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: fontSize, sliderMin: FONT_SIZE_MIN, sliderMax: FONT_SIZE_MAX, dim: {}};
+
+  var lineSpacingElement = {dimension: {}, letterSize: 22, name: "spacing", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: lineSpacing, sliderMin: 1.0, sliderMax: 10.0, dim: {}};
+
+  var menuToggleElement = {dimension: {}, letterSize: 22, name: 'men tog', dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: menuToggle};
+  var lineWrapOption = {dimension: {}, letterSize: 22, name: "V", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: lineWrapOn};
 
   UI_Elements.push(boldElement); 
   UI_Elements.push(italicElement); 
-  UI_Elements.push(sizeElement); 
+  UI_Elements.push(sizeElement);
+  UI_Elements.push(lineSpacingElement);
+  UI_Elements.push(lineWrapOption); 
+  UI_Elements.push(menuToggleElement);
+  
 
   requestAnimationFrame(mainLoop);
 

@@ -1,10 +1,10 @@
-- font resizing slider bar
 - spell check, grammar checker
-- meta jump
 - undo redo
 - tag checker -> hash table
+- move up and down lines
+- fix cursor reposition
+- have UI buttons collapse into a collapsible menu
 
-- html parser -> styles: font, size, color, anchor tags with links
 
 - game idea -> write a situation with active sentences -> sentence parser
 
