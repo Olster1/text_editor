@@ -1062,7 +1062,9 @@ window.onload = function() {
       var color = (tagIndex === 0) ? "#000000" : "#00ff00";
       var wordDim = infinityInverseRect();
       var onLastWord = (wordAt === (wordBuffer.length - 1));
-      if(lineWrapOn.value && ((cursor.x + getWordLengthInPixels(word)) >= canvas.width) && !isWordWhiteSpace) {
+      var wordLength = getWordLengthInPixels(word);
+      if(lineWrapOn.value && ((cursor.x + wordLength) >= canvas.width) && !isWordWhiteSpace && 
+        wordLength < canvas.width) {
 
         if(!renderPass) {
           var cursorOffset = offsetPos_v2(cursor, scrollAt);
