@@ -36,7 +36,7 @@ window.onload = function() {
   var shiftDown = false;
   var highlightBeginIndex = 0;
   var highlightEndIndex = 0;
-  var recompileWords = false;
+  var recompileWords = true;
   var indexesEffected = [];
   var globalTags = [];
   var globalMouseP = {x: 0, y: 0};
@@ -62,7 +62,6 @@ window.onload = function() {
     var boldString = bold ? "bold" : "";
     var italicString = italic ? "italic" : "";
     var result = italicString + " " + boldString + " " + size + "px " + name;
-    // console.log(result);
     return result;
   }
 
@@ -103,7 +102,6 @@ window.onload = function() {
 
   function getLineHeight(size) {
     var index = Math.floor(size) - FONT_SIZE_MIN;
-    // console.log(size);
     if(index < 0) {
       // alert("string size not added to array");
       index = 0;
@@ -141,6 +139,12 @@ window.onload = function() {
       }
     } 
     return wordCount;
+  }
+
+  function tLinear_to_tSineous(t) {
+    var result = 0.5*Math.cos(t*Math.PI - Math.PI) + 0.5;
+
+    return result;
   }
 
   function stringsMatch(A, lengthA, B, lengthB) {
@@ -225,7 +229,6 @@ window.onload = function() {
     var tagsThatMatch = "";
     
     //TODO: hash words to avoid double loop, use the hash as an entry point into the word array
-    // console.log(globalTags);
     for(var i = 1; i < globalTags.length; i++) {
       var tag = globalTags[i];
       var wordCount = findNumberOfWords(tag.name);
@@ -279,7 +282,6 @@ window.onload = function() {
     }
 
 
-    // console.log(wordBuffer);
     document.getElementById("tags-listing").innerHTML = tagsThatMatch;
   }
 
@@ -350,7 +352,6 @@ window.onload = function() {
   }
 
   function parseCharBufferToHtml(charBuffer) {
-    // console.log(charBuffer);
     var result = "";
     var resultIndex = 0;
     var boldTagOpen = false;
@@ -359,14 +360,15 @@ window.onload = function() {
     var anchorOpen = false;
     var lastCharacter = 0;
     var font = "";
-    var size = "";
-    // console.log(linksToAdd);
-    for(var charIndex = 0; charIndex < charBuffer.length; ++charIndex) {
+    var currentSize = 0;
+    var styleOpen = false;
+    for(var charIndex = 1; charIndex < charBuffer.length; ++charIndex) {
       var character = charBuffer[charIndex];
 
       var linkAt = getLink(charIndex); 
-      // console.log("indexAt: " + charIndex + linkAt.isStart)
       characterToAdd = "";
+
+      
 
       switch(character.value) {
         case 0: {
@@ -377,6 +379,10 @@ window.onload = function() {
             result += "<br />";
           } else {
             if(paragraphOpen) {
+              if(styleOpen) {
+                result += "<span />";
+                styleOpen = false;
+              } 
               result += "</p>";
               paragraphOpen = false;
             }  
@@ -417,6 +423,14 @@ window.onload = function() {
               result += "</i>"
             }
           }
+          if(character.attributes.size !== currentSize || !styleOpen) {
+            currentSize = character.attributes.size;
+            if(styleOpen) {
+              result += "<span />";
+            } 
+            result += "<span style='font-size: " + currentSize + "pt'>";
+            styleOpen = true;
+          }
           result += character.value;
         }
       }
@@ -427,17 +441,22 @@ window.onload = function() {
           anchorOpen = false;
         }  
       }
+      
       lastCharacter = character.value;
     }
 
+    if(styleOpen) {
+      result += "</span>"
+    }
+    if(italicTagOpen) {
+      result += "</i>"
+    }
     if(boldTagOpen) {
       result += "</b>"
     }
-
     if(paragraphOpen) {
       result += "</p>"
     }
-
     return result;
   }
 
@@ -465,8 +484,6 @@ window.onload = function() {
     }
   });
   canvas.addEventListener("keydown", function(e) {
-    // console.log(e);
-    // console.log(stringsMatch("john", 4, "john", 4));
     resetCursor(cursorTimer);
     if(e.key === "ArrowLeft") {
       if(!shiftDown && highlightOn) {
@@ -627,7 +644,6 @@ window.onload = function() {
       highlightOn = false;
       var attributeFlags = (bold.value) << BOLD_FLAG_SHIFT | (italic.value) << ITALIC_FLAG_SHIFT;
       var attributes = {flags: attributeFlags, size: Math.floor(fontSize.value)}
-      // console.log(attributes);
       if(e.ctrlKey && e.key === "c") {
         copyBuffer = [];
         var hlIndexes = getBeginAndEndHighglightIndexes();
@@ -648,7 +664,6 @@ window.onload = function() {
         indexesEffected.push(cursorPosition + 1);
         buffer.splice((cursorPosition + 1), 0, {value: e.key, attributes: attributes});
         cursorPosition = cursorPosWithClamp(cursorPosition, 1);
-        // console.log(cursorPosition);
         if(e.key === " ") {
           return false;
         }
@@ -686,8 +701,6 @@ window.onload = function() {
     var min = canvas.height;
     var max = 0;
     var pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    // console.log(pixels.length);
-    // console.log(canvas.width *canvas.height);
 
     for(var y = 0; y < canvas.height; ++y) {
       for(var x = 0; x < canvas.width; ++x) {
@@ -749,20 +762,21 @@ window.onload = function() {
     }
 
     var targetScroll = {x: cursorRelToOrigin.x - (canvas.width / 2), y: cursorRelToOrigin.y - (canvas.height / 2)};
-    if(scrollAt.y !== targetScroll.y && !scrollUpdateInfo.updating) {
-      // || absolute(targetScroll.y - scrollAt.y) < absolute(scrollUpdateInfo.B.y - scrollUpdateInfo.A.y)) {
-      scrollUpdateInfo.A = clampMinV2(0, scrollAt);
-      scrollUpdateInfo.B = clampMinV2(0, targetScroll);
-      scrollUpdateInfo.t = 0.0;
-      scrollUpdateInfo.updating = true;
+    if(scrollAt.y !== targetScroll.y) {
+      
+      if(!scrollUpdateInfo.updating) {
+        scrollUpdateInfo.A = clampMinV2(0, scrollAt);
+        scrollUpdateInfo.B = clampMinV2(0, targetScroll);
+        scrollUpdateInfo.t = 0.0;
+        scrollUpdateInfo.updating = true;
 
+        
+        scrollUpdateInfo.deltaTime = 1.0;
+      } 
       if(lineWrapOn.value) {
        scrollUpdateInfo.A.x = 0.0; 
        scrollUpdateInfo.B.x = 0.0; 
       }
-
-      var halfHeight = canvas.height / 2;
-      scrollUpdateInfo.deltaTime = 1.0*(cursorRel.y/halfHeight);
     }
     
   }
@@ -849,14 +863,10 @@ window.onload = function() {
   }
 
   function updateLinks(minIndex, maxIndex) {
-    // console.log("min index: " + minIndex);
-    // console.log("max index: " + maxIndex);
     var range = maxIndex - minIndex;
     var result = false;
     for(var i = 0; i < links.length; ) {
       var link = links[i];
-      // console.log("begin index: " + link.beginIndex);
-      // console.log("end index: " + link.endIndex);
       if(link.beginIndex < minIndex && link.endIndex < minIndex) {
         ++i;
       } else if (link.beginIndex > maxIndex && link.endIndex > maxIndex) {
@@ -939,6 +949,20 @@ window.onload = function() {
     cursorTimer.visible = true;
   }
 
+  function getTextWidth(text) {
+    var res = 0;
+    if(text === 'Enter') {
+      return 0;
+    }
+    for(var i = 0; i < text.length; i++) {
+      var c = text[i];
+      var unicode = c.charCodeAt(0);
+      res += ctx.measureText(c).width;
+    }
+    return res;
+  }
+    
+
   function getWordLengthInPixels(word) {
     var currentFont = ctx.font;
     var result = 0;
@@ -948,9 +972,7 @@ window.onload = function() {
       var bold = isBold(attributes.flags);
       var italic = isItalic(attributes.flags);
       ctx.font = appendFontString(fontName, attributes.size, bold, italic);
-
-      result += ctx.measureText(character).width;
-
+      result += getTextWidth(character);
     }
     ctx.font = currentFont;
 
@@ -1006,8 +1028,6 @@ window.onload = function() {
         break;
       }
     }
-    // console.log(lineBuffer);
-    // console.log(index);
     return result;
     
   }
@@ -1021,6 +1041,7 @@ window.onload = function() {
   }
 
   function renderCharacterBuffer(renderPass, scrollUpdateInfo) {
+
     var hl = getBeginAndEndHighglightIndexes();
     var highlightIndex1 = hl.first;
     var highlightIndex2 = hl.second;
@@ -1035,13 +1056,14 @@ window.onload = function() {
 
     var totalIndex = 0;
     for(var wordAt = 0; wordAt < wordBuffer.length; ++wordAt) {
+      var isWordWhiteSpace = false;//wordBuffer[wordAt].isWhiteSpace;
       var word = wordBuffer[wordAt].word;
       var tagIndex = wordBuffer[wordAt].tagIndex;
       var color = (tagIndex === 0) ? "#000000" : "#00ff00";
       var wordDim = infinityInverseRect();
       var onLastWord = (wordAt === (wordBuffer.length - 1));
-      if(lineWrapOn.value && ((cursor.x + getWordLengthInPixels(word)) >= canvas.width)) {
-        
+      if(lineWrapOn.value && ((cursor.x + getWordLengthInPixels(word)) >= canvas.width) && !isWordWhiteSpace) {
+
         if(!renderPass) {
           var cursorOffset = offsetPos_v2(cursor, scrollAt);
           lineBuffer[lineIndexAt++] = {maxCharacterSize: maxCharacterSize, beginIndex: beginLineIndex, endIndex: totalIndex, minY: cursorOffset.y, height: getLineHeight(maxCharacterSize)};
@@ -1051,6 +1073,7 @@ window.onload = function() {
         cursor.x = 0;  
         maxCharacterSize = 0;
       }
+
       for(var i = 0; i < word.length; ++i, ++totalIndex) {
         var character = word[i].value;
         var attributes = word[i].attributes;
@@ -1063,8 +1086,8 @@ window.onload = function() {
         ctx.fillStyle = color;
         var thisLineGap = calculateLineGap(maxCharacterSize);
 
-        var characterWidth = ctx.measureText(character).width;
-        if(lineWrapOn.value && (cursor.x + characterWidth) >= canvas.width) {
+        var characterWidth = getTextWidth(character);
+        if(lineWrapOn.value && (cursor.x + characterWidth) >= canvas.width && !isWhiteSpace(character)) {
             //needed for when single words span multiple lines
             if(!renderPass) {
               var cursorOffset = offsetPos_v2(cursor, scrollAt);
@@ -1110,10 +1133,8 @@ window.onload = function() {
         } 
 
         var lineInfo = getLineInfo(totalIndex);
-        // console.log(fontSize.value);
         var lineInfoHeight = (lineInfo === null) ? getLineHeight(fontSize.value) : lineInfo.height;
         if(lineInfo === null && renderPass) {
-          console.log("null");
         }
         if(renderPass && renderCharacter) {
           var offsetP = offsetPos_v2({x: cursor.x, y: cursor.y + lineInfoHeight}, scrollAt);
@@ -1143,7 +1164,23 @@ window.onload = function() {
     return dim.maxY - dim.minY;
   }
 
-  function renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX) {
+  function getUIButtonWidth(element) {
+    var result = 0;
+    switch(element.type) {
+      case "toggle": {
+        if(element.dimensionType === "percentage") {
+          result = getWidth(percentagePosToPixelPos(element.dimension, element.dimensionRelTo));
+        } else if(element.dimensionType === "packed") {
+          var fontSize = element.letterSize;
+          ctx.font = appendFontString(fontName, element.letterSize, false, false);
+          result = getTextWidth(element.name);
+        }
+      }
+    }
+    return result;
+  }
+
+  function renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth) {
 
     var interactDimension = element.dimension;
       var btnDim = element.dimension;
@@ -1165,10 +1202,10 @@ window.onload = function() {
             } else if(element.dimensionType === "packed") {
               var fontSize = element.letterSize;
               ctx.font = appendFontString(fontName, element.letterSize, false, false);
-              var charWidth = ctx.measureText(element.name).width;
+              var charWidth = getTextWidth(element.name);
               var charHeight = getLineHeight(element.letterSize);
               buttonText = element.name;
-              if(packedX.value + charWidth < canvasWidth || ignoreBoundary) {
+              if(packedX.value + charWidth + menuToggleButtonWidth + marginX < canvasWidth || ignoreBoundary) {
                 btnDim = {minX: packedX.value, maxX: packedX.value + charWidth, minY: packedY.value, maxY: packedY.value + charHeight};
                 if(moveInX) {
                   packedX.value += charWidth + marginX;   
@@ -1178,7 +1215,8 @@ window.onload = function() {
               } else {
                 indexUpTo.value = UI_ElementIndex;
                 var elementIndex = UI_Elements.length - 1;
-                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedX, packedY, true, true);
+                var packedXTemp = {value: canvasWidth - menuToggleButtonWidth};
+                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedXTemp, packedY, true, true, menuToggleButtonWidth);
                 completeRender = false;
               } 
             }
@@ -1193,12 +1231,12 @@ window.onload = function() {
               var barWidth = 100;
               var barHeight= 20;
               ctx.font = appendFontString(fontName, element.letterSize, false, false);
-              var totalWidth = ctx.measureText(element.name).width;
+              var totalWidth = getTextWidth(element.name);
               if(totalWidth < barWidth) {
                 totalWidth = barWidth;
               } 
               var charHeight = getLineHeight(element.letterSize);
-              if(packedX.value + barWidth < canvasWidth || ignoreBoundary) {
+              if(packedX.value + barWidth + menuToggleButtonWidth + marginX < canvasWidth || ignoreBoundary) {
                 ctx.fillText(element.name, packedX.value, packedY.value);  
                 sliderDim = {minX: packedX.value, maxX: packedX.value + barWidth, minY: packedY.value, maxY: packedY.value + barHeight};
                 element.dim = sliderDim;
@@ -1210,8 +1248,8 @@ window.onload = function() {
               } else {
                 indexUpTo.value = UI_ElementIndex;
                 var elementIndex = UI_Elements.length - 1;
-                
-                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedX, packedY, canvasWidth, true, true);
+                var packedXTemp = {value: canvasWidth - menuToggleButtonWidth};
+                renderElement(UI_Elements[elementIndex], indexUpTo, elementIndex, packedXTemp, packedY, canvasWidth, true, true, menuToggleButtonWidth);
                 completeRender = false;
               }
             }
@@ -1231,22 +1269,20 @@ window.onload = function() {
           ctx.fillText(buttonText, btnDim.minX, btnDim.maxY);  
         }
       } //if interaction is not a tag
-      // console.log(interactDimension);
       if(inBounds(globalMouseP, btnDim) && completeRender) {
         nextHotInteractionIndex = UI_ElementIndex;
-        // console.log("inbounds");
       }
 
       return completeRender;
   }
 
-  function renderToolBar(UIElementStartingIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX) {
+  function renderToolBar(UIElementStartingIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth) {
     
     var indexUpTo = {value: UI_Elements.length};
 
     for(var UI_ElementIndex = UIElementStartingIndex; UI_ElementIndex < (UI_Elements.length - 1); ++UI_ElementIndex) {
       var element = UI_Elements[UI_ElementIndex];
-      var continueLoop = renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX);
+      var continueLoop = renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth);
       if(!continueLoop) {
         indexUpTo = UI_ElementIndex;
         break;
@@ -1256,13 +1292,10 @@ window.onload = function() {
     return {indexUpTo: indexUpTo};
   }
 
-  var scrollUpdateInfo = {A: {x: -100000, y: -100000}, t: 1, B: {x: 0, y: 0}, deltaTime: 1, updating: false};
+  var scrollUpdateInfo = {A: {x: 0, y: 0}, t: 1, B: {x: 0, y: 0}, deltaTime: 1, updating: false};
   function mainLoop() {
-    // console.log(ctx);
-    // console.log(buffer);
-    // console.log(cursorPosition);
-    
     if(recompileWords) {
+
       recompileWords = false;
       var cursor = {x: 0, y: 0};
       wordBuffer = [];
@@ -1278,7 +1311,7 @@ window.onload = function() {
         var wordWidth = 0;
         while(indexAt !== buffer.length && isWhiteSpace(buffer[indexAt].value)) {
           word[charIndex++] = buffer[indexAt];
-          wordWidth += ctx.measureText(buffer[indexAt].value).width;
+          wordWidth += getTextWidth(buffer[indexAt].value);
           indexAt++;
         }
         var endIndex = indexAt;
@@ -1298,6 +1331,7 @@ window.onload = function() {
           wordIndexes[wordIndexBufferAt++] = wordIndex;
           wordBuffer[wordIndex++] = {word: word, isWhiteSpace: false, tagIndex: 0, startCharIndex: beginIndex, endCharIndex: endIndex, dimension: {minX: 0, minY: 0, maxX: 0, maxY: 0}};
         }
+
       }
       var range = findMinMax(indexesEffected);
       updateLinks(range.min, range.max);
@@ -1305,13 +1339,9 @@ window.onload = function() {
       indexesEffected = [];
 
       renderCharacterBuffer(false, null);
-      // console.log(lineBuffer);
-
     }
 
     matchTags();  
-
-    // console.log(wordBuffer);
 
     var dt = 0.03333;
     var accel = {x: 200, y: 200};
@@ -1319,7 +1349,9 @@ window.onload = function() {
 
     var accelCoeff = 1.0;
 
-    scrollAt = lerpV2(scrollUpdateInfo.A, scrollUpdateInfo.t / scrollUpdateInfo.deltaTime, scrollUpdateInfo.B);
+    if(scrollUpdateInfo.updating) {
+      scrollAt = lerpV2(scrollUpdateInfo.A, tLinear_to_tSineous(scrollUpdateInfo.t / scrollUpdateInfo.deltaTime), scrollUpdateInfo.B);
+    }
     scrollUpdateInfo.t += dt;
     if(scrollUpdateInfo.t >= scrollUpdateInfo.deltaTime) {
       scrollUpdateInfo.t = scrollUpdateInfo.deltaTime;
@@ -1343,13 +1375,14 @@ window.onload = function() {
     var packedY = {value: 25};
     ctx.fillStyle = "#808080";
     ctx.fillRect(toolbarDim.minX, toolbarDim.minY, getWidth(toolbarDim), getHeight(toolbarDim)); // fill toolbar backing color
-    var res = renderToolBar(1, packedX, packedY, canvas.width, false, true);
+    var menuToggleButtonWidth = getUIButtonWidth(UI_Elements[UI_Elements.length - 1]);
+    var res = renderToolBar(1, packedX, packedY, canvas.width, false, true, menuToggleButtonWidth);
     if(menuToggle.value) {
       packedX.value = 0.7*canvas.width;
       packedY.value = getHeight(toolbarDim) + 20;
       ctx.fillStyle = "#404040";
       ctx.fillRect(packedX.value, packedY.value, canvas.width - packedX.value, canvas.height); 
-      renderToolBar(res.indexUpTo, packedX, packedY, canvas.width, true, false);
+      renderToolBar(res.indexUpTo, packedX, packedY, canvas.width, true, false, menuToggleButtonWidth);
     }
     
 
@@ -1367,7 +1400,6 @@ window.onload = function() {
 
           }
         }
-        // console.log("startInteraction");
       }
     } 
 
@@ -1382,7 +1414,7 @@ window.onload = function() {
           var thisLineHeight = getLineHeight(fontSize);
           for(var postIndex = 0; postIndex < element.posts.length; ++postIndex) {
             var characters = element.posts[postIndex].title;
-            var width = ctx.measureText(characters).width;
+            var width = getTextWidth(characters);
             if(maxWidth < width) {
               maxWidth = width;
             }
@@ -1399,7 +1431,7 @@ window.onload = function() {
             ctx.fillRect(cursor.x, cursor.y, maxWidth, thisLineHeight);
             ctx.fillStyle = "#000000";
             var characters = postInfo.title;
-            var width = ctx.measureText(characters).width;
+            var width = getTextWidth(characters);
             ctx.fillText(characters, cursor.x, cursor.y);  
             var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + thisLineHeight};
             if(inBounds(globalMouseP, dimension)) {
@@ -1412,7 +1444,7 @@ window.onload = function() {
           var removeLink = false;
           if(isLinkAlready(element.beginIndex, element.endIndex)) {
             var buttonTitle = "remove link";
-            var width = ctx.measureText(buttonTitle).width;
+            var width = getTextWidth(buttonTitle);
             var dimension = {minX: cursor.x, minY: cursor.y, maxX: cursor.x + width, maxY: cursor.y + thisLineHeight};
             ctx.fillStyle = "#808080";
             if(inBounds(globalMouseP, dimension)) {
@@ -1444,6 +1476,9 @@ window.onload = function() {
           if(globalMouseReleased) {
             if(nextHotInteractionIndex === interactingElementIndex) {
               element.valueToToggle.value = !element.valueToToggle.value;  
+              if(element.hasOwnProperty("function")) {
+                element.function();
+              }
             }
             interactingElementIndex = 0;
             hotInteraction = 0;
@@ -1479,7 +1514,6 @@ window.onload = function() {
     nextHotInteractionIndex = 0;
     
     requestAnimationFrame(mainLoop);
-    // console.log(lineBuffer);
   }
 
   //fill tool bar with buttons
@@ -1491,8 +1525,9 @@ window.onload = function() {
 
   var lineSpacingElement = {dimension: {}, letterSize: 22, name: "spacing", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "slider", valueToToggle: lineSpacing, sliderMin: 1.0, sliderMax: 10.0, dim: {}};
 
-  var menuToggleElement = {dimension: {}, letterSize: 22, name: 'men tog', dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: menuToggle};
-  var lineWrapOption = {dimension: {}, letterSize: 22, name: "V", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: lineWrapOn};
+  var lineWrapOption = {dimension: {}, letterSize: 22, name: "V", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: lineWrapOn, function: function(){recompileWords = true}};
+
+  var menuToggleElement = {dimension: {}, letterSize: 26, name: "\u2630", dimensionType: "packed", dimensionRelTo: toolbarDim, type: "toggle", valueToToggle: menuToggle};
 
   UI_Elements.push(boldElement); 
   UI_Elements.push(italicElement); 
@@ -1514,6 +1549,7 @@ window.onload = function() {
 
 
   function mediaQueryResponse (mq) {
+
     if (mq.matches) {
     } else {
     }  
