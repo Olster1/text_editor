@@ -1190,10 +1190,13 @@ window.onload = function() {
       var marginX = 20;
       var marginY = 4;
       var completeRender = true;
+      var activeColor = "#fb8e8e";
+      var onColor = "#8e8efb";
+      var offColor = "#fecf7e";
       if(element.type !== "tag") {
-        var buttonColor = (element.valueToToggle.value) ? "#00ffff" : "#ff8000";
+        var buttonColor = (element.valueToToggle.value) ? onColor : offColor;
         if(UI_ElementIndex === hotInteractionIndex) {
-          buttonColor = "#0000ff";
+          buttonColor = activeColor;
         }
         var relWidth = element.dimensionRelTo.maxX - element.dimensionRelTo.minX;
         var relHeight = element.dimensionRelTo.maxY - element.dimensionRelTo.minY;
@@ -1239,6 +1242,7 @@ window.onload = function() {
               } 
               var charHeight = getLineHeight(element.letterSize);
               if(packedX.value + barWidth + menuToggleButtonWidth + marginX < canvasWidth || ignoreBoundary) {
+                ctx.fillStyle = "#000000";
                 ctx.fillText(element.name, packedX.value, packedY.value);  
                 sliderDim = {minX: packedX.value, maxX: packedX.value + barWidth, minY: packedY.value, maxY: packedY.value + barHeight};
                 element.dim = sliderDim;
@@ -1281,17 +1285,16 @@ window.onload = function() {
   function renderToolBar(UIElementStartingIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth) {
     
     var indexUpTo = {value: UI_Elements.length};
-
+    var continueLoop = true;
     for(var UI_ElementIndex = UIElementStartingIndex; UI_ElementIndex < (UI_Elements.length - 1); ++UI_ElementIndex) {
       var element = UI_Elements[UI_ElementIndex];
-      var continueLoop = renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth);
+      continueLoop = renderElement(element, indexUpTo, UI_ElementIndex, packedX, packedY, canvasWidth, ignoreBoundary, moveInX, menuToggleButtonWidth);
       if(!continueLoop) {
         indexUpTo = UI_ElementIndex;
         break;
       }
     }
-
-    return {indexUpTo: indexUpTo};
+    return {indexUpTo: indexUpTo, renderedBurgerButton: !continueLoop};
   }
 
   var scrollUpdateInfo = {A: {x: 0, y: 0}, t: 1, B: {x: 0, y: 0}, deltaTime: 1, updating: false};
@@ -1372,17 +1375,18 @@ window.onload = function() {
 
     // toolbarDim = updateDimension(0, 0, canvas.width, 50, toolbarDim);
     renderCharacterBuffer(true, scrollUpdateInfo);
-
+    
+    var toolBarBackingColor = "#dafab1";
     var packedX = {value: 20};
     var packedY = {value: 25};
-    ctx.fillStyle = "#808080";
+    ctx.fillStyle = toolBarBackingColor;
     ctx.fillRect(toolbarDim.minX, toolbarDim.minY, getWidth(toolbarDim), getHeight(toolbarDim)); // fill toolbar backing color
     var menuToggleButtonWidth = getUIButtonWidth(UI_Elements[UI_Elements.length - 1]);
     var res = renderToolBar(1, packedX, packedY, canvas.width, false, true, menuToggleButtonWidth);
-    if(menuToggle.value) {
+    if(menuToggle.value && res.renderedBurgerButton) {
       packedX.value = 0.7*canvas.width;
-      packedY.value = getHeight(toolbarDim) + 20;
-      ctx.fillStyle = "#404040";
+      packedY.value = getHeight(toolbarDim);
+      ctx.fillStyle = toolBarBackingColor;
       ctx.fillRect(packedX.value, packedY.value, canvas.width - packedX.value, canvas.height); 
       renderToolBar(res.indexUpTo, packedX, packedY, canvas.width, true, false, menuToggleButtonWidth);
     }
