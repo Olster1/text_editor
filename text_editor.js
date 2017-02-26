@@ -1,5 +1,5 @@
 window.onload = function() {
-  var TESTING_ENVIRONMENT = 0;
+  var TESTING_ENVIRONMENT = false;
   var cursorPosition = 0;
   var buffer = [{value: 0, attributes: 0}];
   var lineBuffer = [];
@@ -308,7 +308,7 @@ window.onload = function() {
     // request.send(JSON.stringify(payLoad)); 
   }
 
-  if(TESTING_ENVIRONMENT) {
+  if(TESTING_ENVIRONMENT === true) {
     findTagButton.addEventListener("click", function(e) {
       matchTags();
     });
@@ -1330,7 +1330,7 @@ window.onload = function() {
       }
       var range = findMinMax(indexesEffected);
       updateLinks(range.min, range.max);
-      if(TESTING_ENVIRONMENT) {
+      if(TESTING_ENVIRONMENT === true) {
         document.getElementById("html-test").innerHTML = parseCharBufferToHtml(buffer);  
       } else {
         HtmlBuffer = parseCharBufferToHtml(buffer);  
@@ -1340,7 +1340,7 @@ window.onload = function() {
       renderCharacterBuffer(false, null);
     }
 
-    if(TESTING_ENVIRONMENT) {
+    if(TESTING_ENVIRONMENT === true) {
       matchTags();    
     }
 
@@ -1469,7 +1469,7 @@ window.onload = function() {
             } else if(removeLink) {
               isLinkAlready(element.beginIndex, element.endIndex, true);
             }
-            if(TESTING_ENVIRONMENT) {
+            if(TESTING_ENVIRONMENT === true) {
               document.getElementById("html-test").innerHTML = parseCharBufferToHtml(buffer);  
             } else {
               HtmlBuffer = parseCharBufferToHtml(buffer);  
