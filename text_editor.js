@@ -1,3 +1,9 @@
+var HtmlBuffer = "";
+
+function getHtmlBuffer() {
+  return HtmlBuffer;
+}
+
 window.onload = function() {
   var TESTING_ENVIRONMENT = false;
   var cursorPosition = 0;
@@ -36,15 +42,12 @@ window.onload = function() {
   var menuToggle = {value: false};
   var lineSpacing = {value: 1.0};
   var cursorTimer = {value: 0.0, maxTime: 1.0, visible: true};
-  var HtmlBuffer = "";
+  
 
   var FONT_SIZE_MIN = 16;
   var FONT_SIZE_MAX = 72;
   var lineHeights = [15, 15, 16, 18, 19, 20, 21, 21, 22, 24, 25, 25, 26, 28, 29, 29, 30, 31, 32, 33, 34, 35, 35, 37, 38, 38, 39, 40, 42, 42, 43, 44, 45, 46, 47, 48, 48, 50, 51, 51, 52, 53, 55, 55, 56, 57, 58, 59, 60, 61, 61, 63, 64, 64, 65, 66, 68];
 
-  function getHtmlBuffer() {
-    return HtmlBuffer;
-  }
 
   function appendFontString(name, size, bold = false, italic = false) {
     var boldString = bold ? "bold" : "";
